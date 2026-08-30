@@ -6,4 +6,4 @@ The design goal is a **clean superset** of stock Klipper. Single-toolhead config
 
 KlipperMQ is early. The working tree is stock Klipper plus this README. Multi-queue motion, TOOLCHANGE orchestration, and recovery are not implemented yet. Treat this as a development tree for builders who want more freedom in multi-toolhead motion and are willing to test, break things, and report what actually fails on real hardware.
 
-If you want “stock Klipper but my second toolhead can park while the first keeps printing—and I can resume a dual-tool job after a power hit,” that is the north star. Contributions and harsh feedback from multi-toolhead users are welcome; please read `ARCHITECTURE.md` before large changes.
+If you want “stock Klipper but my second toolhead can park while the first keeps printing—and I can resume a dual-tool job after a power hit,” that is the north star. Contributions and harsh feedback from multi-toolhead users are welcome.
