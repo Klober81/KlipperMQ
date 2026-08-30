@@ -231,7 +231,8 @@ class TestMQManager(unittest.TestCase):
         self.assertTrue(mgr.ownership.multi_queue)
         self.assertTrue(mgr.can_drive(mgr.primary, 'x'))
         self.assertFalse(mgr.can_drive(mgr.primary, 'dual_carriage'))
-        self.assertTrue(mgr.can_drive(mgr.lookup_queue('q_T1'), 'dual_carriage'))
+        self.assertTrue(mgr.can_drive(
+            mgr.lookup_queue('q_T1'), 'dual_carriage'))
         st = mgr.get_status()
         self.assertEqual(st['primary'], 'q_T0')
         self.assertEqual(st['ownership']['x'], 'q_T0')
