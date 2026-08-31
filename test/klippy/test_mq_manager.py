@@ -217,9 +217,9 @@ class TestMQManager(unittest.TestCase):
         mq_manager_at = src.find("self.load_object(config, 'mq_manager')")
         self.assertGreater(extras_at, 0)
         self.assertGreater(mq_config_at, extras_at)
-        self.assertGreater(toolhead_at, mq_config_at)
-        self.assertGreater(mq_manager_at, toolhead_at)
-        self.assertNotIn("mq_manager", src[mq_config_at:toolhead_at])
+        self.assertGreater(mq_manager_at, mq_config_at)
+        self.assertGreater(toolhead_at, mq_manager_at)
+        self.assertNotIn("mq_manager", src[toolhead_at:])
 
     def test_real_load_two_queue_text_and_repo_files(self):
         text = (
