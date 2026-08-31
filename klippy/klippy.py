@@ -122,6 +122,7 @@ class Printer:
         for section_config in config.get_prefix_sections(''):
             self.load_object(config, section_config.get_name(), None)
         self.load_object(config, 'mq_config')
+        self.load_object(config, 'mq_manager')
         for m in [toolhead]:
             m.add_printer_objects(config)
         # Validate that there are no undefined parameters in the config file
