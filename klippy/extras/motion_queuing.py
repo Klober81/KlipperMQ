@@ -20,6 +20,62 @@ SDS_CHECK_TIME = 0.001 # step+dir+step filter in stepcompress.c
 DRIP_SEGMENT_TIME = 0.050
 DRIP_TIME = 0.100
 
+QUEUE_BOOKMARK = "queue_bookmark clock=%u seq=%u"
+BOOKMARK_ECHO = "bookmark_echo clock=%u seq=%u"
+
+class BookmarkSeq:
+    def __init__(self):
+        self.last_id = 0
+        self.last_echo_id = 0
+        self._cmds = []
+        self._seen = []
+        self._warned = False
+    def bind_one(self, mcu):
+        if mcu in self._seen:
+            return
+        self._seen.append(mcu)
+        raw = mcu.get_constants().get('BOOKMARK')
+        try:
+            has = int(raw) != 0
+        except (TypeError, ValueError):
+            has = bool(raw)
+        if not has:
+            return
+        cmd = mcu.try_lookup_command(QUEUE_BOOKMARK)
+        if cmd is None:
+            return
+        mcu.register_serial_response(self._handle_echo, BOOKMARK_ECHO)
+        self._cmds.append((mcu, cmd))
+    def bind_mcus(self, mcus):
+        for mcu in mcus:
+            self.bind_one(mcu)
+        self.warn_if_needed()
+    def warn_if_needed(self):
+        if self._cmds or self._warned:
+            return
+        self._warned = True
+        logging.warning(
+            "MCU does not advertise bookmark support; "
+            "host still assigns sequence IDs")
+    def note_accepted_move(self, toolhead):
+        self.last_id += 1
+        seq = self.last_id
+        if self._cmds:
+            toolhead.register_lookahead_callback(
+                (lambda print_time, s=seq: self._emit(s, print_time)))
+        return seq
+    def _emit(self, seq, print_time):
+        for mcu, cmd in self._cmds:
+            clock = mcu.print_time_to_clock(print_time)
+            if clock < 0:
+                continue
+            cmd.send([clock, seq], reqclock=clock)
+    def _handle_echo(self, params):
+        self.last_echo_id = int(params['seq'])
+    def reset(self):
+        self.last_id = 0
+        self.last_echo_id = 0
+
 class PrinterMotionQueuing:
     def __init__(self, config):
         self.printer = printer = config.get_printer()
@@ -57,8 +113,16 @@ class PrinterMotionQueuing:
         self.need_flush_time = self.need_step_gen_time = 0.
         # "Drip" timing (for homing and probing moves)
         self.drip_start_times = []
+        self.bookmarks = BookmarkSeq()
         # Register handlers
         printer.register_event_handler("klippy:shutdown", self._handle_shutdown)
+        printer.register_event_handler("print_stats:start",
+                                       self.bookmarks.reset)
+        for m in self.all_mcus:
+            m.register_config_callback(
+                lambda mcu=m: self.bookmarks.bind_one(mcu))
+        printer.register_event_handler("klippy:connect",
+                                       self._bookmark_connect)
     # C trapq tracking
     def allocate_trapq(self):
         ffi_main, ffi_lib = chelper.get_ffi()
@@ -292,6 +356,13 @@ class PrinterMotionQueuing:
         if not self.drip_start_times:
             return None
         return min(self.drip_start_times)
+
+    def _bookmark_connect(self):
+        self.bookmarks.warn_if_needed()
+    def note_accepted_move(self, toolhead):
+        if self.check_drip_timing() is not None:
+            return None
+        return self.bookmarks.note_accepted_move(toolhead)
 
 def load_config(config):
     return PrinterMotionQueuing(config)
