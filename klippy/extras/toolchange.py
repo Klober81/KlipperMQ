@@ -120,12 +120,11 @@ class Toolchange:
             return None
         return 'SET_DUAL_CARRIAGE CARRIAGE=%d' % (idx,)
 
-    def _activate_lines(self, spec, set_dc=True):
+    def _activate_lines(self, spec):
         lines = []
-        if set_dc:
-            dc = self._dual_carriage_cmd(spec)
-            if dc is not None:
-                lines.append(dc)
+        dc = self._dual_carriage_cmd(spec)
+        if dc is not None:
+            lines.append(dc)
         extruder = self._queue_extruder(spec)
         if extruder:
             lines.append(
@@ -165,7 +164,7 @@ class Toolchange:
                 lines.append(dc)
             hop, park = self._park_lines(outgoing)
             lines.extend(park)
-        lines.extend(self._activate_lines(spec, outgoing is not None))
+        lines.extend(self._activate_lines(spec))
         if hop:
             lines.append('G91')
             lines.append('G1 Z%.6g' % (-hop,))

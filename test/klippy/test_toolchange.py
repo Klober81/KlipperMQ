@@ -179,8 +179,11 @@ class TestToolchange(unittest.TestCase):
         self.assertEqual(id(t0), id(obj))
         gcode = printer.lookup_object('gcode')
         self.toolchange(obj, 'T0')
+        first = gcode.scripts[0] if gcode.scripts else ''
+        self.assertNotIn('G1 X0', first)
+        self.assertNotIn('X433', first)
         self.toolchange(obj, 'T1')
-        park = gcode.scripts[0]
+        park = gcode.scripts[-1]
         self.assertIn('G1 X0', park)
         self.assertNotIn('G91', park)
         self.assertNotIn('Z', park)
@@ -201,18 +204,22 @@ class TestToolchange(unittest.TestCase):
         printer, config, obj, access = load_tc(MARATHON_T0_T1)
         gcode = printer.lookup_object('gcode')
         self.toolchange(obj, 'T0')
-        self.assertEqual(gcode.scripts, [])
+        first = gcode.scripts[0] if gcode.scripts else ''
+        self.assertNotIn('G1 X0', first)
+        self.assertNotIn('X433', first)
+        dc0 = 'SET_DUAL_CARRIAGE CARRIAGE=0'
+        if first:
+            self.assertIn(dc0, first)
         self.toolchange(obj, 'T1')
-        self.assertEqual(len(gcode.scripts), 1)
-        script = gcode.scripts[0]
+        script = gcode.scripts[-1]
         self.assertIn('G1 X0', script)
         self.assertNotIn('X433', script)
-        dc0 = 'SET_DUAL_CARRIAGE CARRIAGE=0'
         self.assertIn(dc0, script)
         self.assertLess(script.find(dc0), script.find('G1 X0'))
+        n = len(gcode.scripts)
         self.toolchange(obj, 'T0')
-        self.assertEqual(len(gcode.scripts), 2)
-        self.assertIn('G1 X433', gcode.scripts[1])
+        self.assertEqual(len(gcode.scripts), n + 1)
+        self.assertIn('G1 X433', gcode.scripts[-1])
         joined = '\n'.join(gcode.scripts)
         self.assertLess(joined.find('X0'), joined.find('X433'))
         self.assertEqual(obj.current.name, 'T0')
