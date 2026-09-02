@@ -105,20 +105,27 @@ class Toolchange:
             return None
         return q.extruder
 
-    def _carriage_id(self, spec):
-        name = spec.name
-        if (len(name) >= 2 and name[0] in 'Tt'
-                and name[1:].isdigit()):
-            return name[1:]
-        return None
-
-    def _activate_lines(self, spec):
-        lines = []
+    def _dual_carriage_cmd(self, spec):
+        # IDEX: DualCarriages SET_DUAL_CARRIAGE CARRIAGE=0|1 (primary/dual).
+        # Gated on the dual_carriage object; not a T-name mapping.
         dc = self.printer.lookup_object('dual_carriage', None)
-        cid = self._carriage_id(spec)
-        if dc is not None and cid is not None:
-            lines.append(
-                'SET_DUAL_CARRIAGE CARRIAGE=%s' % (cid,))
+        if dc is None:
+            return None
+        idx = None
+        for i, tool in enumerate(self.tools):
+            if tool is spec:
+                idx = i
+                break
+        if idx is None or idx > 1:
+            return None
+        return 'SET_DUAL_CARRIAGE CARRIAGE=%d' % (idx,)
+
+    def _activate_lines(self, spec, set_dc=True):
+        lines = []
+        if set_dc:
+            dc = self._dual_carriage_cmd(spec)
+            if dc is not None:
+                lines.append(dc)
         extruder = self._queue_extruder(spec)
         if extruder:
             lines.append(
@@ -151,9 +158,14 @@ class Toolchange:
         gcode = self.printer.lookup_object('gcode')
         lines = []
         hop = 0.
-        if self.current is not None:
-            hop, lines = self._park_lines(self.current)
-        lines.extend(self._activate_lines(spec))
+        outgoing = self.current
+        if outgoing is not None:
+            dc = self._dual_carriage_cmd(outgoing)
+            if dc is not None:
+                lines.append(dc)
+            hop, park = self._park_lines(outgoing)
+            lines.extend(park)
+        lines.extend(self._activate_lines(spec, outgoing is not None))
         if hop:
             lines.append('G91')
             lines.append('G1 Z%.6g' % (-hop,))

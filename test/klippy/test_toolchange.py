@@ -73,6 +73,10 @@ class DummyGCmd:
         raise configfile.error(msg)
 
 
+class DummyDualCarriage:
+    pass
+
+
 def _toolchange_sections(fileconfig):
     sections = []
     for name in fileconfig.sections():
@@ -90,6 +94,7 @@ def load_tc(text, with_gcode=True):
         printer, fileconfig, access, 'printer')
     if with_gcode:
         printer.objects['gcode'] = DummyGCode()
+    printer.objects['dual_carriage'] = DummyDualCarriage()
     mq = mq_config.load_config(config.getsection('mq_config'))
     printer.objects['mq_config'] = mq
     obj = None
@@ -199,8 +204,12 @@ class TestToolchange(unittest.TestCase):
         self.assertEqual(gcode.scripts, [])
         self.toolchange(obj, 'T1')
         self.assertEqual(len(gcode.scripts), 1)
-        self.assertIn('G1 X0', gcode.scripts[0])
-        self.assertNotIn('X433', gcode.scripts[0])
+        script = gcode.scripts[0]
+        self.assertIn('G1 X0', script)
+        self.assertNotIn('X433', script)
+        dc0 = 'SET_DUAL_CARRIAGE CARRIAGE=0'
+        self.assertIn(dc0, script)
+        self.assertLess(script.find(dc0), script.find('G1 X0'))
         self.toolchange(obj, 'T0')
         self.assertEqual(len(gcode.scripts), 2)
         self.assertIn('G1 X433', gcode.scripts[1])
