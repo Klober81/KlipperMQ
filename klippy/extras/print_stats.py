@@ -6,7 +6,7 @@
 
 class PrintStats:
     def __init__(self, config):
-        printer = config.get_printer()
+        self.printer = printer = config.get_printer()
         self.gcode_move = printer.load_object(config, 'gcode_move')
         self.reactor = printer.get_reactor()
         self.reset()
@@ -32,6 +32,7 @@ class PrintStats:
     def note_start(self):
         curtime = self.reactor.monotonic()
         if self.print_start_time is None:
+            self.printer.send_event("print_stats:start")
             self.print_start_time = curtime
         elif self.last_pause_time is not None:
             # Update pause time duration

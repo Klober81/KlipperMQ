@@ -230,6 +230,7 @@ class ToolHead:
         self.motion_queuing = self.printer.load_object(config, 'motion_queuing')
         self.motion_queuing.register_flush_callback(self._handle_step_flush,
                                                     can_add_trapq=True)
+        self._in_drip = False
         self.trapq = self.motion_queuing.allocate_trapq()
         self.trapq_append = self.motion_queuing.lookup_trapq_append()
         # Create kinematics class
@@ -403,6 +404,8 @@ class ToolHead:
                 ea.check_move(move, e_index + 3)
         self.commanded_pos[:] = move.end_pos
         want_flush = self.lookahead.add_move(move)
+        if not self._in_drip:
+            self.motion_queuing.note_accepted_move(self)
         if want_flush:
             self._process_lookahead(lazy=True)
         if self.print_time > self.need_check_pause:
@@ -485,9 +488,13 @@ class ToolHead:
         self.dwell(kin_flush_delay)
         # Transmit move in "drip" mode
         self._process_lookahead()
-        start_time, end_time = self._drip_load_trapq(move)
-        self.motion_queuing.drip_update_time(start_time, end_time,
-                                             drip_completion)
+        self._in_drip = True
+        try:
+            start_time, end_time = self._drip_load_trapq(move)
+            self.motion_queuing.drip_update_time(start_time, end_time,
+                                                 drip_completion)
+        finally:
+            self._in_drip = False
         # Move finished; cleanup any remnants on trapq
         self.motion_queuing.wipe_trapq(self.trapq)
     # Misc commands
