@@ -212,9 +212,9 @@ class MQConfig:
 
 
     def _parse_copy(self, config):
-        if not config.has_section("copy"):
+        if not config.has_section("mq_copy"):
             return None
-        section = config.getsection("copy")
+        section = config.getsection("mq_copy")
         section_name = section.get_name()
         source = section.get("source", None)
         return CopyConfig(section_name, source)

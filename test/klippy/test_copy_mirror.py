@@ -13,7 +13,7 @@ import configfile
 import extras.mq_config as mq_config
 import extras.mq_manager as mq_manager
 import extras.copy_mirror as copy_mirror
-import extras.copy as copy_mod
+import extras.mq_copy as copy_mod
 import extras.mirror as mirror_mod
 
 
@@ -91,7 +91,7 @@ def _cm_sections(fileconfig):
     sections = []
     for name in fileconfig.sections():
         sl = name.lower()
-        if sl in ('copy', 'mirror'):
+        if sl in ('mq_copy', 'mirror'):
             sections.append(name)
     return sections
 
@@ -114,7 +114,7 @@ def load_cm(text, with_gcode=True, with_dual=True):
     obj = None
     for name in _cm_sections(fileconfig):
         wrap = config.getsection(name)
-        if name.lower() == 'copy':
+        if name.lower() == 'mq_copy':
             obj = copy_mod.load_config(wrap)
         else:
             obj = mirror_mod.load_config(wrap)
@@ -150,7 +150,7 @@ class TestCopyMirror(unittest.TestCase):
         return msg
 
     def test_no_sections_no_commands_stock_dual(self):
-        # (a) no [copy]/[mirror] -> no COPY/MIRROR; stock dual loads
+        # (a) no [mq_copy]/[mirror] -> no COPY/MIRROR; stock dual loads
         dual = os.path.join(ROOT, 'test', 'klippy',
                             'dual_carriage.cfg')
         with open(dual, encoding='utf-8') as f:
@@ -176,11 +176,11 @@ class TestCopyMirror(unittest.TestCase):
     def test_singleton_both_sections(self):
         text = (
             IDEX_QUEUES
-            + "[copy]\n"
+            + "[mq_copy]\n"
             + "[mirror]\naxis: x\ncenter: 150\n"
         )
         printer, config, obj, access = load_cm(text)
-        a = copy_mod.load_config(config.getsection('copy'))
+        a = copy_mod.load_config(config.getsection('mq_copy'))
         b = mirror_mod.load_config(config.getsection('mirror'))
         self.assertEqual(id(a), id(b))
         self.assertEqual(id(a), id(obj))
@@ -200,7 +200,7 @@ class TestCopyMirror(unittest.TestCase):
         check_unused(printer, config, access)
 
     def test_source_default_primary(self):
-        text = IDEX_QUEUES + "[copy]\n"
+        text = IDEX_QUEUES + "[mq_copy]\n"
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
         self.assertIsNone(mq.copy.source)
@@ -225,7 +225,7 @@ class TestCopyMirror(unittest.TestCase):
         # (c) COPY/MIRROR line order; OFF unsyncs
         text = (
             IDEX_QUEUES
-            + "[copy]\n"
+            + "[mq_copy]\n"
             + "[mirror]\naxis: x\ncenter: 150\n"
         )
         printer, config, obj, access = load_cm(text)
@@ -262,7 +262,7 @@ class TestCopyMirror(unittest.TestCase):
         check_unused(printer, config, access)
 
     def test_copy_only_registers_copy_and_off(self):
-        text = IDEX_QUEUES + "[copy]\n"
+        text = IDEX_QUEUES + "[mq_copy]\n"
         printer, config, obj, access = load_cm(text)
         gcode = printer.lookup_object('gcode')
         self.assertIn('COPY', gcode.commands)
@@ -278,7 +278,7 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIn('OFF', gcode.commands)
 
     def test_missing_dual_carriage_errors(self):
-        text = IDEX_QUEUES + "[copy]\n"
+        text = IDEX_QUEUES + "[mq_copy]\n"
         printer, config, obj, access = load_cm(
             text, with_dual=False)
         with self.assertRaises(configfile.error) as ctx:
@@ -288,7 +288,7 @@ class TestCopyMirror(unittest.TestCase):
     def test_source_token_primary_aliases(self):
         text = (
             IDEX_QUEUES
-            + "[copy]\nsource: primary\n"
+            + "[mq_copy]\nsource: primary\n"
         )
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
