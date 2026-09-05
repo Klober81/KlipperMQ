@@ -1,0 +1,10 @@
+# Ownership load-proof through real Printer._read_config (mq_config then mq_manager)
+CONFIG mq_ownership_loadproof.cfg
+DICTIONARY atmega2560.dict
+
+G28
+ASSERT_MQ_OWNERSHIP
+QUEUE_CLAIM QUEUE=q_T0 AXIS=y
+ASSERT_Y_CLAIMED_T0
+QUEUE_RELEASE QUEUE=q_T0 AXIS=y
+ASSERT_Y_UNCLAIMED
