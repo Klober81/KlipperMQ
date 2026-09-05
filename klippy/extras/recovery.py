@@ -242,7 +242,7 @@ class Recovery:
                 'M117 Jog to safe XY then confirm recovery')
         # 8: Z home/probe at confirmed location (thin)
         lines.append('G28 Z')
-        # 9-10: remaining state / resume options — host prompts
+        # 9-10: remaining state / resume options - host prompts
         lines.append('M117 Recovery ready: resume/pause/cancel')
         return lines
 
