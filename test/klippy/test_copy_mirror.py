@@ -162,7 +162,7 @@ class TestCopyMirror(unittest.TestCase):
         gcode = printer.lookup_object('gcode')
         self.assertNotIn('COPY', gcode.commands)
         self.assertNotIn('MIRROR', gcode.commands)
-        self.assertNotIn('OFF', gcode.commands)
+        self.assertNotIn('COPY_OFF', gcode.commands)
 
     def test_mirror_missing_center_config_error(self):
         # (b) [mirror] missing center -> config_error
@@ -189,7 +189,7 @@ class TestCopyMirror(unittest.TestCase):
         gcode = printer.lookup_object('gcode')
         self.assertIn('COPY', gcode.commands)
         self.assertIn('MIRROR', gcode.commands)
-        self.assertIn('OFF', gcode.commands)
+        self.assertIn('COPY_OFF', gcode.commands)
         mq = printer.lookup_object('mq_config')
         self.assertIsNotNone(mq.copy)
         self.assertIsNotNone(mq.mirror)
@@ -222,7 +222,7 @@ class TestCopyMirror(unittest.TestCase):
         check_unused(printer, config, access)
 
     def test_copy_mirror_off_emit_order(self):
-        # (c) COPY/MIRROR line order; OFF unsyncs
+        # (c) COPY/MIRROR line order; COPY_OFF unsyncs
         text = (
             IDEX_QUEUES
             + "[mq_copy]\n"
@@ -250,7 +250,7 @@ class TestCopyMirror(unittest.TestCase):
                 'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
                 ' MOTION_QUEUE=extruder',
             ])
-        obj.cmd_OFF(DummyGCmd())
+        obj.cmd_COPY_OFF(DummyGCmd())
         off_script = gcode.scripts[-1]
         self.assertEqual(
             off_script.split('\n'),
@@ -267,7 +267,7 @@ class TestCopyMirror(unittest.TestCase):
         gcode = printer.lookup_object('gcode')
         self.assertIn('COPY', gcode.commands)
         self.assertNotIn('MIRROR', gcode.commands)
-        self.assertIn('OFF', gcode.commands)
+        self.assertIn('COPY_OFF', gcode.commands)
 
     def test_mirror_only_registers_mirror_and_off(self):
         text = IDEX_QUEUES + "[mirror]\naxis: x\ncenter: 150\n"
@@ -275,7 +275,7 @@ class TestCopyMirror(unittest.TestCase):
         gcode = printer.lookup_object('gcode')
         self.assertNotIn('COPY', gcode.commands)
         self.assertIn('MIRROR', gcode.commands)
-        self.assertIn('OFF', gcode.commands)
+        self.assertIn('COPY_OFF', gcode.commands)
 
     def test_missing_dual_carriage_errors(self):
         text = IDEX_QUEUES + "[mq_copy]\n"
