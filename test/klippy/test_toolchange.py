@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(ROOT, 'klippy'))
 
 import configfile
 import extras.mq_config as mq_config
+import extras.mq_manager as mq_manager
 import extras.toolchange as toolchange
 
 
@@ -97,6 +98,8 @@ def load_tc(text, with_gcode=True):
     printer.objects['dual_carriage'] = DummyDualCarriage()
     mq = mq_config.load_config(config.getsection('mq_config'))
     printer.objects['mq_config'] = mq
+    mgr = mq_manager.load_config(config.getsection('mq_manager'))
+    printer.objects['mq_manager'] = mgr
     obj = None
     for name in _toolchange_sections(fileconfig):
         wrap = config.getsection(name)
@@ -240,6 +243,74 @@ class TestToolchange(unittest.TestCase):
         self.assertIsNone(obj)
         self.assertIsNone(
             printer.lookup_object('toolchange', None))
+
+
+    def test_idex_carriage_from_ownership_not_tools_index(self):
+        # base SHA 27fcabc7: T1 owns dual_carriage => CARRIAGE=1 even if
+        # [toolchange T1] is listed before [toolchange T0].
+        text = (
+            "[queue]\nowned_axes: x\nextruder: extruder\n"
+            "[queue q_T1]\nowned_axes: dual_carriage\n"
+            "extruder: extruder1\n"
+            "[toolchange T1]\npark_x: 433\n"
+            "[toolchange T0]\npark_x: 0\n"
+        )
+        printer, config, obj, access = load_tc(text)
+        self.assertEqual(obj.tools[0].name, 'T1')
+        self.assertEqual(obj.tools[1].name, 'T0')
+        gcode = printer.lookup_object('gcode')
+        self.toolchange(obj, 'T0')
+        first = gcode.scripts[0] if gcode.scripts else ''
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=0', first)
+        self.assertNotIn('CARRIAGE=1', first)
+        self.toolchange(obj, 'T1')
+        script = gcode.scripts[-1]
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=0', script)
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=1', script)
+        self.assertLess(
+            script.find('CARRIAGE=0'), script.find('CARRIAGE=1'))
+        self.assertEqual(obj.current.name, 'T1')
+        self.toolchange(obj, 'T0')
+        last = gcode.scripts[-1]
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=1', last)
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=0', last)
+        act = last.rfind('CARRIAGE=0')
+        park_dc = last.find('CARRIAGE=1')
+        self.assertGreater(act, park_dc)
+        check_unused(printer, config, access)
+
+    def test_stock_toolchange_still_uses_tools_index(self):
+        # No [queue] sections: multi_queue false => tools-list index path
+        printer, config, obj, access = load_tc(MARATHON_T0_T1)
+        mgr = printer.lookup_object('mq_manager')
+        self.assertFalse(mgr.ownership.multi_queue)
+        self.assertIsNone(mgr.carriage_for_queue(mgr.primary))
+        gcode = printer.lookup_object('gcode')
+        self.toolchange(obj, 'T0')
+        first = gcode.scripts[0] if gcode.scripts else ''
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=0', first)
+        self.toolchange(obj, 'T1')
+        script = gcode.scripts[-1]
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=0', script)
+        self.assertIn('SET_DUAL_CARRIAGE CARRIAGE=1', script)
+        check_unused(printer, config, access)
+
+    def test_unmapped_carriage_errors(self):
+        # multi_queue + dual_carriage + queue owns neither carriage axis
+        text = (
+            "[queue]\nowned_axes: y\nextruder: extruder\n"
+            "[queue q_T1]\nowned_axes: z\nextruder: extruder1\n"
+            "[toolchange T0]\npark_x: 0\n"
+            "[toolchange T1]\npark_x: 433\n"
+        )
+        printer, config, obj, access = load_tc(text)
+        mgr = printer.lookup_object('mq_manager')
+        self.assertTrue(mgr.ownership.multi_queue)
+        self.assertIsNone(mgr.carriage_for_queue(mgr.primary))
+        self.assertIsNone(mgr.carriage_for_queue(mgr.lookup_queue('q_T1')))
+        with self.assertRaises(configfile.error) as ctx:
+            self.toolchange(obj, 'T0')
+        self.assertIn('owns neither', str(ctx.exception))
 
 
 if __name__ == '__main__':

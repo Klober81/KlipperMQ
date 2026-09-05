@@ -14,6 +14,10 @@ class Queue:
         self.extruder = qcfg.extruder
 
 
+# IDEX: owned_axes token -> SET_DUAL_CARRIAGE CARRIAGE index
+CARRIAGE_AXES = ('x', 'dual_carriage')
+
+
 class OwnershipMap:
     def __init__(self, queues):
         self.exclusive = {}
@@ -36,6 +40,25 @@ class OwnershipMap:
         if owner is not None:
             return owner is queue
         return False
+
+    def carriage_for_queue(self, queue):
+        if not self.multi_queue:
+            return None
+        for idx, axis in enumerate(CARRIAGE_AXES):
+            if self.exclusive.get(axis) is queue:
+                return idx
+        return None
+
+    def queue_for_carriage(self, carriage):
+        if not self.multi_queue:
+            return None
+        try:
+            idx = int(carriage)
+        except (TypeError, ValueError):
+            return None
+        if idx < 0 or idx >= len(CARRIAGE_AXES):
+            return None
+        return self.exclusive.get(CARRIAGE_AXES[idx])
 
     def claim(self, queue, axis):
         axis = axis.lower()
@@ -125,6 +148,12 @@ class MQManager:
 
     def can_drive(self, queue, axis):
         return self.ownership.can_drive(queue, axis)
+
+    def carriage_for_queue(self, queue):
+        return self.ownership.carriage_for_queue(queue)
+
+    def queue_for_carriage(self, carriage):
+        return self.ownership.queue_for_carriage(carriage)
 
     def get_status(self, eventtime=None):
         queues = {}
