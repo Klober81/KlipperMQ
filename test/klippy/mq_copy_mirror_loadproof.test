@@ -1,0 +1,6 @@
+# COPY/MIRROR load-proof through real Printer._read_config
+CONFIG mq_copy_mirror_loadproof.cfg
+DICTIONARY atmega2560.dict
+
+G28
+ASSERT_MQ_COPY_MIRROR
