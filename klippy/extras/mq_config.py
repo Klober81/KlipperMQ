@@ -49,6 +49,20 @@ class ToolchangeConfig:
         self.park_z_hop = park_z_hop
 
 
+class CopyConfig:
+    def __init__(self, section_name, source):
+        self.section_name = section_name
+        self.source = source
+
+
+class MirrorConfig:
+    def __init__(self, section_name, source, axis, center):
+        self.section_name = section_name
+        self.source = source
+        self.axis = axis
+        self.center = center
+
+
 class RecoveryConfig:
     def __init__(self, bed_temp_hold_time, require_user_confirmation,
                  restore_chamber, bed_temp_threshold, chamber_temp_threshold,
@@ -76,6 +90,8 @@ class MQConfig:
                 "Too many queues (%d) - max_queues is %d"
                 % (len(self.queues), self.max_queues))
         self.toolchanges = self._parse_toolchanges(config)
+        self.copy = self._parse_copy(config)
+        self.mirror = self._parse_mirror(config)
         self.recovery = self._parse_recovery(config)
 
     def lookup_queue(self, name):
@@ -193,6 +209,32 @@ class MQConfig:
             toolchanges.append(ToolchangeConfig(
                 name, section_name, park_x, park_y, park_z_hop))
         return toolchanges
+
+
+    def _parse_copy(self, config):
+        if not config.has_section("mq_copy"):
+            return None
+        section = config.getsection("mq_copy")
+        section_name = section.get_name()
+        source = section.get("source", None)
+        return CopyConfig(section_name, source)
+
+    def _parse_mirror(self, config):
+        if not config.has_section("mirror"):
+            return None
+        section = config.getsection("mirror")
+        section_name = section.get_name()
+        # Fail-fast: axis and center are required on [mirror]
+        if not config.fileconfig.has_option(section_name, "axis"):
+            raise section.error(
+                "Section '%s' must specify axis" % (section_name,))
+        if not config.fileconfig.has_option(section_name, "center"):
+            raise section.error(
+                "Section '%s' must specify center" % (section_name,))
+        axis = section.get("axis")
+        center = section.getfloat("center")
+        source = section.get("source", None)
+        return MirrorConfig(section_name, source, axis, center)
 
     def _parse_recovery(self, config):
         if not config.has_section('recovery'):
