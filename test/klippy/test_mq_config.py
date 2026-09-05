@@ -179,8 +179,10 @@ class TestMQConfig(unittest.TestCase):
         self.assertFalse(obj.recovery.section_present)
         self.assertEqual(obj.recovery.bed_temp_hold_time, 0.)
         self.assertTrue(obj.recovery.require_user_confirmation)
+        self.assertIsNone(obj.recovery.z_hop_on_recover)
         text = (
             "[recovery]\n"
+            "z_hop_on_recover: 5\n"
             "require_user_confirmation: False\n"
             "restore_chamber: False\n"
             "bed_temp_hold_time: 12\n"
@@ -190,7 +192,15 @@ class TestMQConfig(unittest.TestCase):
         self.assertFalse(obj.recovery.require_user_confirmation)
         self.assertFalse(obj.recovery.restore_chamber)
         self.assertEqual(obj.recovery.bed_temp_hold_time, 12.)
+        self.assertEqual(obj.recovery.z_hop_on_recover, 5.)
         check_unused(printer, config, access)
+
+    def test_recovery_requires_positive_z_hop(self):
+        self.assert_error("[recovery]\n", "z_hop_on_recover")
+        self.assert_error(
+            "[recovery]\nz_hop_on_recover: 0\n", "above")
+        self.assert_error(
+            "[recovery]\nz_hop_on_recover: -1\n", "above")
 
     def test_stock_example_cartesian(self):
         cfg = os.path.join(ROOT, 'config', 'example-cartesian.cfg')
