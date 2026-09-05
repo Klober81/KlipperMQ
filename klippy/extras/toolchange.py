@@ -105,24 +105,45 @@ class Toolchange:
             return None
         return q.extruder
 
-    def _dual_carriage_cmd(self, spec):
+    def _carriage_index(self, spec):
+        # Multi-queue: CARRIAGE from owned_axes (x=0, dual_carriage=1).
+        # Stock / no queues: tools-list index (unchanged).
+        mgr = self.printer.lookup_object('mq_manager', None)
+        if mgr is not None and mgr.ownership.multi_queue:
+            if not spec.queue_name:
+                return None
+            try:
+                queue = mgr.lookup_queue(spec.queue_name)
+            except self.printer.config_error:
+                return None
+            return mgr.carriage_for_queue(queue)
+        for i, tool in enumerate(self.tools):
+            if tool is spec:
+                if i > 1:
+                    return None
+                return i
+        return None
+
+    def _dual_carriage_cmd(self, spec, gcmd=None):
         # IDEX: DualCarriages SET_DUAL_CARRIAGE CARRIAGE=0|1 (primary/dual).
-        # Gated on the dual_carriage object; not a T-name mapping.
+        # Fail-fast when multi_queue and the queue owns neither carriage axis.
         dc = self.printer.lookup_object('dual_carriage', None)
         if dc is None:
             return None
-        idx = None
-        for i, tool in enumerate(self.tools):
-            if tool is spec:
-                idx = i
-                break
-        if idx is None or idx > 1:
+        idx = self._carriage_index(spec)
+        if idx is None:
+            mgr = self.printer.lookup_object('mq_manager', None)
+            if (gcmd is not None and mgr is not None
+                    and mgr.ownership.multi_queue and spec.queue_name):
+                raise gcmd.error(
+                    "Queue '%s' owns neither x nor dual_carriage"
+                    % (spec.queue_name,))
             return None
         return 'SET_DUAL_CARRIAGE CARRIAGE=%d' % (idx,)
 
-    def _activate_lines(self, spec):
+    def _activate_lines(self, spec, gcmd=None):
         lines = []
-        dc = self._dual_carriage_cmd(spec)
+        dc = self._dual_carriage_cmd(spec, gcmd)
         if dc is not None:
             lines.append(dc)
         extruder = self._queue_extruder(spec)
@@ -159,12 +180,12 @@ class Toolchange:
         hop = 0.
         outgoing = self.current
         if outgoing is not None:
-            dc = self._dual_carriage_cmd(outgoing)
+            dc = self._dual_carriage_cmd(outgoing, gcmd)
             if dc is not None:
                 lines.append(dc)
             hop, park = self._park_lines(outgoing)
             lines.extend(park)
-        lines.extend(self._activate_lines(spec))
+        lines.extend(self._activate_lines(spec, gcmd))
         if hop:
             lines.append('G91')
             lines.append('G1 Z%.6g' % (-hop,))

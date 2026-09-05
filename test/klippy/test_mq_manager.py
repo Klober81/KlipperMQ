@@ -271,5 +271,33 @@ class TestMQManager(unittest.TestCase):
         self.assertFalse(mgr.get_status()['pause_all_queues_on_error'])
 
 
+    def test_carriage_ownership_mapping(self):
+        # base SHA 27fcabc7: carriage from owned_axes, not tools-list order
+        text = (
+            "[queue]\nowned_axes: x\n"
+            "[queue q_T1]\nowned_axes: dual_carriage\n"
+        )
+        printer, config, mq, mgr, access = load_mgr(text)
+        q0 = mgr.primary
+        q1 = mgr.lookup_queue('q_T1')
+        self.assertEqual(mgr.carriage_for_queue(q0), 0)
+        self.assertEqual(mgr.carriage_for_queue(q1), 1)
+        self.assertIs(mgr.queue_for_carriage(0), q0)
+        self.assertIs(mgr.queue_for_carriage(1), q1)
+        self.assertIsNone(mgr.queue_for_carriage(2))
+        self.assertIsNone(mgr.queue_for_carriage(-1))
+
+        stock = "[printer]\nkinematics: cartesian\n"
+        printer, config, mq, mgr, access = load_mgr(stock)
+        self.assertFalse(mgr.ownership.multi_queue)
+        self.assertIsNone(mgr.carriage_for_queue(mgr.primary))
+        self.assertIsNone(mgr.queue_for_carriage(0))
+
+        dual = os.path.join(ROOT, 'test', 'klippy', 'dual_carriage.cfg')
+        printer, config, mq, mgr, access = load_mgr_file(dual)
+        self.assertFalse(mgr.ownership.multi_queue)
+        self.assertIsNone(mgr.carriage_for_queue(mgr.primary))
+        self.assertIsNone(mgr.queue_for_carriage(1))
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
