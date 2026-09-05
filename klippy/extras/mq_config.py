@@ -52,7 +52,7 @@ class ToolchangeConfig:
 class RecoveryConfig:
     def __init__(self, bed_temp_hold_time, require_user_confirmation,
                  restore_chamber, bed_temp_threshold, chamber_temp_threshold,
-                 z_hop_on_recover, section_present):
+                 z_hop_on_recover, section_present, filename=None):
         self.bed_temp_hold_time = bed_temp_hold_time
         self.require_user_confirmation = require_user_confirmation
         self.restore_chamber = restore_chamber
@@ -60,6 +60,7 @@ class RecoveryConfig:
         self.chamber_temp_threshold = chamber_temp_threshold
         self.z_hop_on_recover = z_hop_on_recover
         self.section_present = section_present
+        self.filename = filename
 
 
 class MQConfig:
@@ -195,7 +196,8 @@ class MQConfig:
 
     def _parse_recovery(self, config):
         if not config.has_section('recovery'):
-            return RecoveryConfig(0., True, True, None, None, None, False)
+            return RecoveryConfig(
+                0., True, True, None, None, None, False, None)
         rsection = config.getsection('recovery')
         return RecoveryConfig(
             rsection.getfloat('bed_temp_hold_time', 0., minval=0.),
@@ -203,8 +205,9 @@ class MQConfig:
             rsection.getboolean('restore_chamber', True),
             rsection.getfloat('bed_temp_threshold', None),
             rsection.getfloat('chamber_temp_threshold', None),
-            rsection.getfloat('z_hop_on_recover', None, minval=0.),
-            True)
+            rsection.getfloat('z_hop_on_recover', above=0.),
+            True,
+            rsection.get('filename', '~/printer_data/mq_recovery.state'))
 
 
 def load_config(config):

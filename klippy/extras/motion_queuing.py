@@ -362,7 +362,11 @@ class PrinterMotionQueuing:
     def note_accepted_move(self, toolhead):
         if self.check_drip_timing() is not None:
             return None
-        return self.bookmarks.note_accepted_move(toolhead)
+        seq = self.bookmarks.note_accepted_move(toolhead)
+        recovery = self.printer.lookup_object('recovery', None)
+        if recovery is not None:
+            recovery.note_bookmark(seq)
+        return seq
 
 def load_config(config):
     return PrinterMotionQueuing(config)
