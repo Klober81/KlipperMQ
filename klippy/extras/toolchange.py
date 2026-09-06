@@ -1,4 +1,4 @@
-# Sequential TOOLCHANGE (park then activate)
+# TOOLCHANGE emit plan (sequential + multi-queue overlap)
 #
 # Copyright (C) 2026  Rob Niccum <klober@gmail.com>
 #
@@ -14,6 +14,25 @@ class ToolSpec:
         self.park_z_hop = park_z_hop
         self.aliases = tuple(aliases)
         self.queue_name = queue_name
+
+
+class EmitStep:
+    # kind: set_motion_queue | dual_carriage | park_move |
+    #       activate | hop_down
+    def __init__(self, kind, queue_name=None, idx=None,
+                 lines=None, hop=None):
+        self.kind = kind
+        self.queue_name = queue_name
+        self.idx = idx
+        self.lines = lines
+        self.hop = hop
+
+
+class ToolchangeEmitPlan:
+    def __init__(self, outgoing, incoming, steps):
+        self.outgoing = outgoing
+        self.incoming = incoming
+        self.steps = list(steps)
 
 
 class Toolchange:
@@ -167,6 +186,66 @@ class Toolchange:
         lines.append('G1 ' + ' '.join(move))
         return hop, lines
 
+    def _use_overlap_emit(self, outgoing, incoming):
+        # A-lite: multi_queue and both tools have queue_name.
+        if outgoing is None or incoming is None:
+            return False
+        if not outgoing.queue_name or not incoming.queue_name:
+            return False
+        mgr = self.printer.lookup_object('mq_manager', None)
+        if mgr is None or not mgr.ownership.multi_queue:
+            return False
+        return True
+
+    def _build_emit_plan(self, outgoing, incoming, gcmd):
+        steps = []
+        hop = 0.
+        overlap = self._use_overlap_emit(outgoing, incoming)
+        if outgoing is not None:
+            if overlap:
+                steps.append(EmitStep(
+                    'set_motion_queue',
+                    queue_name=outgoing.queue_name))
+            dc = self._dual_carriage_cmd(outgoing, gcmd)
+            if dc is not None:
+                steps.append(EmitStep(
+                    'dual_carriage',
+                    idx=self._carriage_index(outgoing)))
+            hop, park = self._park_lines(outgoing)
+            steps.append(EmitStep('park_move', lines=park))
+        if overlap:
+            steps.append(EmitStep(
+                'set_motion_queue',
+                queue_name=incoming.queue_name))
+        act = self._activate_lines(incoming, gcmd)
+        if act:
+            steps.append(EmitStep('activate', lines=act))
+        if hop:
+            steps.append(EmitStep('hop_down', hop=hop))
+        return ToolchangeEmitPlan(outgoing, incoming, steps)
+
+    def _render_steps(self, steps):
+        lines = []
+        for step in steps:
+            kind = step.kind
+            if kind == 'set_motion_queue':
+                lines.append(
+                    'SET_MOTION_QUEUE QUEUE=%s'
+                    % (step.queue_name,))
+            elif kind == 'dual_carriage':
+                lines.append(
+                    'SET_DUAL_CARRIAGE CARRIAGE=%d'
+                    % (step.idx,))
+            elif kind == 'park_move':
+                lines.extend(step.lines)
+            elif kind == 'activate':
+                lines.extend(step.lines)
+            elif kind == 'hop_down':
+                lines.append('G91')
+                lines.append('G1 Z%.6g' % (-step.hop,))
+                lines.append('G90')
+        return lines
+
     cmd_TOOLCHANGE_help = (
         "Park the current tool and activate TOOL")
     def cmd_TOOLCHANGE(self, gcmd):
@@ -176,20 +255,8 @@ class Toolchange:
         if self.current is spec:
             return
         gcode = self.printer.lookup_object('gcode')
-        lines = []
-        hop = 0.
-        outgoing = self.current
-        if outgoing is not None:
-            dc = self._dual_carriage_cmd(outgoing, gcmd)
-            if dc is not None:
-                lines.append(dc)
-            hop, park = self._park_lines(outgoing)
-            lines.extend(park)
-        lines.extend(self._activate_lines(spec, gcmd))
-        if hop:
-            lines.append('G91')
-            lines.append('G1 Z%.6g' % (-hop,))
-            lines.append('G90')
+        plan = self._build_emit_plan(self.current, spec, gcmd)
+        lines = self._render_steps(plan.steps)
         if lines:
             gcode.run_script_from_command('\n'.join(lines))
         self.current = spec
