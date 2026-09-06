@@ -105,12 +105,25 @@ class MQManager:
                 self._by_name[alias.lower()] = q
         self.ownership = OwnershipMap(self.queues)
         self.pause_all_queues_on_error = self._parse_pause_all(config)
+        # Per-queue lookaheads when multi_queue; stock path keeps toolhead LA only.
+        self.lookaheads = {}
+        self.active_motion_queue = self.primary
+        if self.ownership.multi_queue:
+            self._init_lookaheads()
         gcode = self.printer.lookup_object('gcode', None)
         if gcode is not None:
             gcode.register_command("QUEUE_CLAIM", self.cmd_QUEUE_CLAIM,
                                    desc=self.cmd_QUEUE_CLAIM_help)
             gcode.register_command("QUEUE_RELEASE", self.cmd_QUEUE_RELEASE,
                                    desc=self.cmd_QUEUE_RELEASE_help)
+            if self.ownership.multi_queue:
+                gcode.register_command(
+                    "SET_MOTION_QUEUE", self.cmd_SET_MOTION_QUEUE,
+                    desc=self.cmd_SET_MOTION_QUEUE_help)
+        # Thin bind: swap toolhead.lookahead to active queue LA after toolhead exists.
+        if hasattr(self.printer, 'register_event_handler'):
+            self.printer.register_event_handler("klippy:connect",
+                                               self._handle_connect)
 
     def _parse_pause_all(self, config):
         fileconfig = config.fileconfig
@@ -208,6 +221,51 @@ class MQManager:
             self.ownership.release(queue, axis)
         except ValueError as e:
             raise gcmd.error(str(e))
+
+    def _init_lookaheads(self):
+        # Reuse stock LookAheadQueue; one instance per configured queue.
+        import toolhead
+        for q in self.queues:
+            self.lookaheads[q.name] = toolhead.LookAheadQueue()
+
+    def _handle_connect(self):
+        if not self.ownership.multi_queue:
+            return
+        toolhead_obj = self.printer.lookup_object('toolhead', None)
+        if toolhead_obj is None:
+            return
+        # Preserve flush timing from the stock-constructed LA onto each queue LA.
+        stock_la = toolhead_obj.lookahead
+        flush_time = stock_la.junction_flush
+        for q in self.queues:
+            la = self.lookaheads[q.name]
+            la.set_flush_time(flush_time)
+        # Primary/implicit: toolhead starts on primary's LA (sole active pointer).
+        self.active_motion_queue = self.primary
+        toolhead_obj.lookahead = self.lookaheads[self.primary.name]
+
+    def _select_motion_queue(self, queue):
+        self.active_motion_queue = queue
+        if not self.ownership.multi_queue:
+            return
+        la = self.lookaheads.get(queue.name)
+        if la is None:
+            return
+        toolhead_obj = self.printer.lookup_object('toolhead', None)
+        if toolhead_obj is not None:
+            toolhead_obj.lookahead = la
+
+    cmd_SET_MOTION_QUEUE_help = "Select active motion queue for subsequent moves"
+    def cmd_SET_MOTION_QUEUE(self, gcmd):
+        queue = self._queue_from_gcmd(gcmd)
+        self._select_motion_queue(queue)
+
+    def lookahead_for(self, queue):
+        if isinstance(queue, str):
+            queue = self.lookup_queue(queue)
+        if not self.ownership.multi_queue:
+            return None
+        return self.lookaheads.get(queue.name)
 
 
 def load_config(config):
