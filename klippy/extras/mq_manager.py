@@ -105,6 +105,8 @@ class MQManager:
                 self._by_name[alias.lower()] = q
         self.ownership = OwnershipMap(self.queues)
         self.pause_all_queues_on_error = self._parse_pause_all(config)
+        # Queues idled by pause_queues_for_error; selective resume OK.
+        self._error_paused_queues = set()
         # Per-queue lookaheads when multi_queue;
         # stock path keeps toolhead LA only.
         self.lookaheads = {}
@@ -208,6 +210,7 @@ class MQManager:
             'primary': self.primary.name,
             'multi_queue': self.ownership.multi_queue,
             'pause_all_queues_on_error': self.pause_all_queues_on_error,
+            'error_paused_queues': sorted(self._error_paused_queues),
             'ownership': ownership,
             'exclusive': exclusive,
             'shareable': shareable,
@@ -278,6 +281,7 @@ class MQManager:
             return
         if not self.ownership.multi_queue:
             return
+        self._error_paused_queues = set(q.name for q in self.queues)
         for la in self.lookaheads.values():
             la.reset()
         mla = getattr(self, 'multi_lookahead', None)
@@ -295,6 +299,66 @@ class MQManager:
         if la is not None:
             # toolhead.BUFFER_TIME_HIGH == 1.0
             la.set_flush_time(1.0)
+
+    def revalidate_ownership(self):
+        # ARCH sec 7: re-check ownership map before resume.
+        # Runtime claim/release only; no shareable: config invent.
+        if not self.ownership.multi_queue:
+            return
+        known = set(self.queues)
+        for axis, owner in self.ownership.exclusive.items():
+            if owner not in known:
+                raise self.printer.config_error(
+                    "Ownership re-validate failed: exclusive"
+                    " axis '%s' has unknown owner" % (axis,))
+            if axis not in owner.exclusive_axes:
+                raise self.printer.config_error(
+                    "Ownership re-validate failed: exclusive"
+                    " axis '%s' not owned by queue '%s'"
+                    % (axis, owner.name))
+        for axis, owner in self.ownership.shareable.items():
+            if owner is None:
+                continue
+            if owner not in known:
+                raise self.printer.config_error(
+                    "Ownership re-validate failed: shareable"
+                    " axis '%s' has unknown owner" % (axis,))
+            if axis in self.ownership.exclusive:
+                raise self.printer.config_error(
+                    "Ownership re-validate failed: axis '%s'"
+                    " is both exclusive and shareable" % (axis,))
+        for q in self.queues:
+            for axis in q.exclusive_axes:
+                cur = self.ownership.exclusive.get(axis)
+                if cur is not q:
+                    raise self.printer.config_error(
+                        "Ownership re-validate failed: queue"
+                        " '%s' exclusive axis '%s' mapping"
+                        " mismatch" % (q.name, axis))
+
+    def resume_queues_after_error(self, queues=None):
+        # ARCH sec 7: re-validate ownership before resume.
+        # Selective resume allowed (queues=None resumes all).
+        self.revalidate_ownership()
+        if not self.ownership.multi_queue:
+            return
+        if not self._error_paused_queues:
+            return
+        if queues is None:
+            names = set(self._error_paused_queues)
+        else:
+            names = set()
+            for q in queues:
+                if isinstance(q, str):
+                    q = self.lookup_queue(q)
+                names.add(q.name)
+            names &= self._error_paused_queues
+        self._error_paused_queues -= names
+        toolhead = self.printer.lookup_object('toolhead', None)
+        if toolhead is None:
+            return
+        if toolhead.special_queuing_state == "NeedPrime":
+            toolhead.special_queuing_state = ""
 
     def _select_motion_queue(self, queue):
         # Active name only; do not swap toolhead.lookahead.
