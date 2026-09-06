@@ -2,8 +2,8 @@
 # Cartesian recovery scaffold on tip; Marathon two-queue shape.
 # CUT: prove persist + reload + script; do NOT invent z_hop
 # product defaults or close ARCHITECTURE section 12 hop numbers.
-# Harness z_hop_on_recover matches tip test_recovery.py (5) as a
-# local test value only -- not a Marathon overlay default.
+# Overlay mq.cfg has LIVE [recovery] (Klober overlay-only).
+# Harness z_hop_on_recover matches tip test_recovery.py (5).
 #
 # Copyright (C) 2026  Rob Niccum <klober@gmail.com>
 #
@@ -186,19 +186,31 @@ class TestMqMarathonRecoveryDryrun(unittest.TestCase):
         if os.path.exists(self.state_path):
             os.unlink(self.state_path)
 
-    def test_overlay_mq_cfg_has_no_recovery(self):
-        # Config-owned overlay: queues + toolchange only today.
+    def test_overlay_mq_cfg_has_live_recovery(self):
+        # Config-owned overlay: LIVE [recovery] hop/filename.
+        # Klober overlay-only; does not close ARCHITECTURE sec 12.
         self.assertTrue(
             os.path.isfile(OVERLAY_MQ_CFG), OVERLAY_MQ_CFG)
         with open(OVERLAY_MQ_CFG, encoding='utf-8') as f:
             text = f.read()
-        self.assertNotIn('[recovery]', text.lower())
+        self.assertIn('[recovery]', text.lower())
         self.assertIn('[queue]', text)
         self.assertIn('[toolchange T0]', text)
         self.assertIn('park_x: 0', text)
         self.assertIn('[toolchange T1]', text)
         self.assertIn('park_x: 433', text)
-        self.assertNotIn('z_hop_on_recover', text)
+        printer = DummyPrinter()
+        access = {}
+        fileconfig = configfile.ConfigFileReader().build_fileconfig(
+            text, OVERLAY_MQ_CFG)
+        config = configfile.ConfigWrapper(
+            printer, fileconfig, access, 'printer')
+        mq = mq_config.load_config(config.getsection('mq_config'))
+        self.assertTrue(mq.recovery.section_present)
+        self.assertEqual(mq.recovery.z_hop_on_recover, 5.0)
+        self.assertEqual(
+            mq.recovery.filename,
+            '~/printer_data/mq_recovery.state')
 
     def test_default_filename_convention(self):
         # mq_config default when [recovery] omits filename.

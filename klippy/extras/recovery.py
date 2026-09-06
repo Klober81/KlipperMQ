@@ -10,16 +10,21 @@ import json, logging, os
 
 
 class BookmarkRecord:
-    def __init__(self, seq_id, filename=None, file_position=None):
+    def __init__(self, seq_id, filename=None, file_position=None,
+                 bed_target=None, chamber_target=None):
         self.seq_id = int(seq_id)
         self.filename = filename
         self.file_position = file_position
+        self.bed_target = bed_target
+        self.chamber_target = chamber_target
 
     def to_dict(self):
         return {
             'seq_id': self.seq_id,
             'filename': self.filename,
             'file_position': self.file_position,
+            'bed_target': self.bed_target,
+            'chamber_target': self.chamber_target,
         }
 
     @staticmethod
@@ -29,7 +34,9 @@ class BookmarkRecord:
         return BookmarkRecord(
             data.get('seq_id', 0),
             data.get('filename'),
-            data.get('file_position'))
+            data.get('file_position'),
+            data.get('bed_target'),
+            data.get('chamber_target'))
 
 
 class RecoveryState:
@@ -152,14 +159,61 @@ class Recovery:
         if gcode is not None:
             gcode.respond_info(msg)
 
+    def _bed_heater(self):
+        return self.printer.lookup_object('heater_bed', None)
+
+    def _chamber_heater(self):
+        printer = self.printer
+        for name in ('heater_generic chamber', 'chamber'):
+            obj = printer.lookup_object(name, None)
+            if obj is not None:
+                return obj
+        return None
+
+    def _heater_target(self, heater):
+        if heater is None:
+            return None
+        target = getattr(heater, 'target_temp', None)
+        if target is None:
+            return None
+        return float(target)
+
+    def _heater_set_name(self, heater, fallback):
+        short = getattr(heater, 'short_name', None)
+        if short:
+            return short
+        name = getattr(heater, 'name', None)
+        if name:
+            return name.split()[-1]
+        return fallback
+
+    def _heater_sensor_name(self, heater, fallback):
+        name = getattr(heater, 'name', None)
+        if name:
+            return name
+        return fallback
+
+    def _sensor_arg(self, sensor_name):
+        if ' ' in sensor_name:
+            return '"%s"' % (sensor_name,)
+        return sensor_name
+
     def note_bookmark(self, seq_id, filename=None,
-                      file_position=None):
+                      file_position=None, bed_target=None,
+                      chamber_target=None):
         self._consume()
         if filename is None:
             ps = self.printer.lookup_object('print_stats', None)
             if ps is not None:
                 filename = getattr(ps, 'filename', None) or None
-        record = BookmarkRecord(seq_id, filename, file_position)
+        if bed_target is None:
+            bed_target = self._heater_target(self._bed_heater())
+        if chamber_target is None:
+            chamber_target = self._heater_target(
+                self._chamber_heater())
+        record = BookmarkRecord(
+            seq_id, filename, file_position,
+            bed_target, chamber_target)
         self.live = record
         self.last = record
         self._persist()
@@ -203,13 +257,37 @@ class Recovery:
             return False
         return self._chamber_heater() is not None
 
-    def _chamber_heater(self):
-        printer = self.printer
-        for name in ('heater_generic chamber', 'chamber'):
-            obj = printer.lookup_object(name, None)
-            if obj is not None:
-                return obj
-        return None
+    def _temp_restore_lines(self, record):
+        cfg = self.cfg
+        lines = []
+        bed_t = record.bed_target
+        if bed_t is not None and bed_t > 0.:
+            lines.append(
+                'SET_HEATER_TEMPERATURE HEATER=heater_bed '
+                'TARGET=%.6g' % (bed_t,))
+            thr = cfg.bed_temp_threshold
+            if thr is not None:
+                lines.append(
+                    'TEMPERATURE_WAIT SENSOR=heater_bed '
+                    'MINIMUM=%.6g' % (bed_t - thr,))
+        if self.should_restore_chamber():
+            ch_t = record.chamber_target
+            if ch_t is not None and ch_t > 0.:
+                heater = self._chamber_heater()
+                hname = self._heater_set_name(heater, 'chamber')
+                sname = self._heater_sensor_name(
+                    heater, 'heater_generic chamber')
+                lines.append(
+                    'SET_HEATER_TEMPERATURE HEATER=%s '
+                    'TARGET=%.6g' % (hname, ch_t))
+                thr = cfg.chamber_temp_threshold
+                if thr is not None:
+                    lines.append(
+                        'TEMPERATURE_WAIT SENSOR=%s '
+                        'MINIMUM=%.6g' % (
+                            self._sensor_arg(sname),
+                            ch_t - thr))
+        return lines
 
     def _run(self, lines):
         if not lines:
@@ -217,16 +295,18 @@ class Recovery:
         gcode = self.printer.lookup_object('gcode')
         gcode.run_script_from_command('\n'.join(lines))
 
-    def build_recovery_script(self):
+    def build_recovery_script(self, record=None):
         """Thin Cartesian steps 1-10 via stock gcode where possible."""
         self._consume()
         cfg = self.cfg
         lines = []
         # 1: load saved state (host-side); no motion yet
-        # 2: bed/chamber temps - targets from snapshot later.
-        #    Thresholds are degrees below restored target, not
-        #    absolute MINIMUM. Omit TEMPERATURE_WAIT until
-        #    setpoints exist (do not use raw threshold).
+        # 2: restore bed/chamber targets from snapshot, wait
+        #    with MINIMUM = target - threshold, then hold_time.
+        if record is None:
+            record = self.live or self.last
+        if record is not None:
+            lines.extend(self._temp_restore_lines(record))
         if cfg.bed_temp_hold_time:
             lines.append('G4 P%d' % (
                 int(cfg.bed_temp_hold_time * 1000.),))
