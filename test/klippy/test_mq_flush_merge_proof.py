@@ -277,6 +277,10 @@ class TestFlushMergeProof(unittest.TestCase):
         th.lookahead.add_move(StubMove('inactive'))
         mgr.cmd_SET_MOTION_QUEUE(DummyGCmd(QUEUE='q_T0'))
         th._in_drip = True
+        # Explicit gate (not buried _in_drip alone)
+        self.assertTrue(mgr.homing_uses_primary_only)
+        self.assertTrue(mgr.is_drip_or_homing(th))
+        self.assertIs(mgr.drip_queue(th), mgr.primary)
         th.lookahead.add_move(StubMove('drip'))
         out = th.lookahead.flush(lazy=False)
         self.assertEqual([m.tag for m in out], ['drip'])

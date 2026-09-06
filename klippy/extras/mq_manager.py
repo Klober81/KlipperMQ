@@ -109,6 +109,11 @@ class MQManager:
         # stock path keeps toolhead LA only.
         self.lookaheads = {}
         self.active_motion_queue = self.primary
+        # Drip/homing policy: stock = one ToolHead one drip path;
+        # IDEX multi-X home is sequential via carriage switch on
+        # that path. MQ primary-only keeps that shape (explicit
+        # gate; not an accidental _in_drip side effect).
+        self.homing_uses_primary_only = True
         # Last toolhead.print_time observed after a flush that
         # drained this queue's LA (trapq busy until est catches up).
         self._trapq_end = {}
@@ -302,6 +307,29 @@ class MQManager:
         queue = self._queue_from_gcmd(gcmd)
         self._select_motion_queue(queue)
 
+    def is_drip_or_homing(self, toolhead=None):
+        # Explicit drip/homing gate for multi_queue path.
+        # Stock drip_move sets toolhead._in_drip around _drip_load_trapq.
+        # Prefer that flag: covers add_move/flush/reset inside the
+        # drip window. motion_queuing.check_drip_timing() is only set
+        # after drip_update_time -- too late for LA routing.
+        if toolhead is None:
+            toolhead = self.printer.lookup_object("toolhead", None)
+        if toolhead is None:
+            return False
+        return bool(getattr(toolhead, "_in_drip", False))
+
+    def drip_queue(self, toolhead=None):
+        # Queue that owns drip/homing motion, or None if not dripping.
+        # When dripping under multi_queue + homing_uses_primary_only,
+        # always primary -- never non-primary. Does not flush-all.
+        if not self.is_drip_or_homing(toolhead):
+            return None
+        if not self.homing_uses_primary_only:
+            # Policy flag off: still primary (never non-primary drip).
+            return self.primary
+        return self.primary
+
     def lookahead_for(self, queue):
         if isinstance(queue, str):
             queue = self.lookup_queue(queue)
@@ -347,12 +375,20 @@ class MQManager:
         # Reuse stock toolhead flush; never invent a second planner.
         # Stubs without _flush_lookahead keep child LA state so tests
         # can prove wait blocks while LA busy.
+        # Drip/homing: primary-only via explicit gate -- do not treat
+        # inactive children as drained (no flush-all during drip).
         if not self.lookaheads:
             return
         if not hasattr(toolhead, '_flush_lookahead'):
             return
-        had = dict((n, not la.is_empty())
-                   for n, la in self.lookaheads.items())
+        if (self.is_drip_or_homing(toolhead)
+                and self.homing_uses_primary_only):
+            pname = self.primary.name
+            la = self.lookaheads.get(pname)
+            had = {pname: la is not None and not la.is_empty()}
+        else:
+            had = dict((n, not la.is_empty())
+                       for n, la in self.lookaheads.items())
         if not any(had.values()):
             return
         toolhead._flush_lookahead()
