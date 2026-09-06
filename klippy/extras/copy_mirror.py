@@ -42,7 +42,11 @@ class CopyMirror:
                 "MIRROR", self.cmd_MIRROR, desc=self.cmd_MIRROR_help)
         if self.copy_cfg is not None or self.mirror_cfg is not None:
             gcode.register_command(
-                "COPY_OFF", self.cmd_COPY_OFF, desc=self.cmd_COPY_OFF_help)
+                "COPY_OFF", self.cmd_COPY_OFF,
+                desc=self.cmd_COPY_OFF_help)
+            gcode.register_command(
+                "MIRROR_OFF", self.cmd_MIRROR_OFF,
+                desc=self.cmd_MIRROR_OFF_help)
 
     def _resolve_source_queue(self, source_token, error):
         mgr = self.printer.lookup_object('mq_manager', None)
@@ -161,8 +165,14 @@ class CopyMirror:
             source = self.mirror_cfg.source
         self._emit_on('MIRROR', source, gcmd)
 
-    cmd_COPY_OFF_help = "Disable COPY/MIRROR and unsync follower extruder"
+    cmd_COPY_OFF_help = (
+        "Disable COPY/MIRROR and unsync follower extruder")
     def cmd_COPY_OFF(self, gcmd):
+        self._emit_off(self._source_for_off(), gcmd)
+
+    cmd_MIRROR_OFF_help = (
+        "Disable COPY/MIRROR and unsync follower extruder")
+    def cmd_MIRROR_OFF(self, gcmd):
         self._emit_off(self._source_for_off(), gcmd)
 
     def get_status(self, eventtime=None):

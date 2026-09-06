@@ -112,6 +112,7 @@ class RealPrinterCopyMirrorLoad(unittest.TestCase):
         self.assertIn('COPY', gcode.ready_gcode_handlers)
         self.assertIn('MIRROR', gcode.ready_gcode_handlers)
         self.assertIn('COPY_OFF', gcode.ready_gcode_handlers)
+        self.assertIn('MIRROR_OFF', gcode.ready_gcode_handlers)
         cm = box['cm']
         self.assertIsNotNone(cm)
         self.assertIs(printer.lookup_object('copy_mirror'), cm)
@@ -141,6 +142,7 @@ class RealPrinterCopyMirrorLoad(unittest.TestCase):
             cm.cmd_COPY(gcmd)
             cm.cmd_MIRROR(gcmd)
             cm.cmd_COPY_OFF(gcmd)
+            cm.cmd_MIRROR_OFF(gcmd)
 
         printer, box = self._boot(self.cfg_cm, on_ready_extra)
         self.assertEqual(len(captured), 3, captured)
@@ -174,6 +176,7 @@ class RealPrinterCopyMirrorLoad(unittest.TestCase):
         self.assertNotIn('COPY', gcode.ready_gcode_handlers)
         self.assertNotIn('MIRROR', gcode.ready_gcode_handlers)
         self.assertNotIn('COPY_OFF', gcode.ready_gcode_handlers)
+        self.assertNotIn('MIRROR_OFF', gcode.ready_gcode_handlers)
         self.assertIsNone(box['cm'])
         self.assertIsNone(
             printer.lookup_object('copy_mirror', None))
