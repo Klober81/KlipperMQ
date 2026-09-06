@@ -14,7 +14,7 @@ import extras.mq_config as mq_config
 import extras.mq_manager as mq_manager
 import extras.copy_mirror as copy_mirror
 import extras.mq_copy as copy_mod
-import extras.mirror as mirror_mod
+import extras.mq_mirror as mirror_mod
 
 
 class DummyPrinter:
@@ -91,7 +91,7 @@ def _cm_sections(fileconfig):
     sections = []
     for name in fileconfig.sections():
         sl = name.lower()
-        if sl in ('mq_copy', 'mirror'):
+        if sl in ('mq_copy', 'mq_mirror'):
             sections.append(name)
     return sections
 
@@ -150,7 +150,7 @@ class TestCopyMirror(unittest.TestCase):
         return msg
 
     def test_no_sections_no_commands_stock_dual(self):
-        # (a) no [mq_copy]/[mirror] -> no COPY/MIRROR; stock dual loads
+        # (a) no [mq_copy]/[mq_mirror] -> no COPY/MIRROR; stock dual loads
         dual = os.path.join(ROOT, 'test', 'klippy',
                             'dual_carriage.cfg')
         with open(dual, encoding='utf-8') as f:
@@ -165,23 +165,23 @@ class TestCopyMirror(unittest.TestCase):
         self.assertNotIn('COPY_OFF', gcode.commands)
 
     def test_mirror_missing_center_config_error(self):
-        # (b) [mirror] missing center -> config_error
-        text = IDEX_QUEUES + "[mirror]\naxis: x\n"
+        # (b) [mq_mirror] missing center -> config_error
+        text = IDEX_QUEUES + "[mq_mirror]\naxis: x\n"
         self.assert_error(text, "must specify center")
 
     def test_mirror_missing_axis_config_error(self):
-        text = IDEX_QUEUES + "[mirror]\ncenter: 150\n"
+        text = IDEX_QUEUES + "[mq_mirror]\ncenter: 150\n"
         self.assert_error(text, "must specify axis")
 
     def test_singleton_both_sections(self):
         text = (
             IDEX_QUEUES
             + "[mq_copy]\n"
-            + "[mirror]\naxis: x\ncenter: 150\n"
+            + "[mq_mirror]\naxis: x\ncenter: 150\n"
         )
         printer, config, obj, access = load_cm(text)
         a = copy_mod.load_config(config.getsection('mq_copy'))
-        b = mirror_mod.load_config(config.getsection('mirror'))
+        b = mirror_mod.load_config(config.getsection('mq_mirror'))
         self.assertEqual(id(a), id(b))
         self.assertEqual(id(a), id(obj))
         self.assertIs(
@@ -229,7 +229,7 @@ class TestCopyMirror(unittest.TestCase):
         text = (
             IDEX_QUEUES
             + "[mq_copy]\n"
-            + "[mirror]\naxis: x\ncenter: 150\n"
+            + "[mq_mirror]\naxis: x\ncenter: 150\n"
         )
         printer, config, obj, access = load_cm(text)
         gcode = printer.lookup_object('gcode')
@@ -273,12 +273,29 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIn('COPY_OFF', gcode.commands)
 
     def test_mirror_only_registers_mirror_and_off(self):
-        text = IDEX_QUEUES + "[mirror]\naxis: x\ncenter: 150\n"
+        text = IDEX_QUEUES + "[mq_mirror]\naxis: x\ncenter: 150\n"
         printer, config, obj, access = load_cm(text)
         gcode = printer.lookup_object('gcode')
         self.assertNotIn('COPY', gcode.commands)
         self.assertIn('MIRROR', gcode.commands)
         self.assertIn('COPY_OFF', gcode.commands)
+
+    def test_bare_mirror_section_blocked(self):
+        # Bare [mirror] must not parse as mq_mirror / load copy_mirror
+        text = IDEX_QUEUES + "[mirror]\naxis: x\ncenter: 150\n"
+        printer = DummyPrinter()
+        access = {}
+        fileconfig = configfile.ConfigFileReader().build_fileconfig(
+            text, 'test.cfg')
+        config = configfile.ConfigWrapper(
+            printer, fileconfig, access, 'printer')
+        mq = mq_config.load_config(config.getsection('mq_config'))
+        self.assertIsNone(mq.mirror)
+        self.assertIsNone(mq.copy)
+        self.assertFalse(
+            os.path.isfile(os.path.join(
+                ROOT, 'klippy', 'extras', 'mirror.py')))
+        self.assertEqual(_cm_sections(fileconfig), [])
 
     def test_missing_dual_carriage_errors(self):
         text = IDEX_QUEUES + "[mq_copy]\n"
@@ -303,14 +320,12 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIn('CARRIAGE=1 MODE=COPY', script)
         check_unused(printer, config, access)
 
-
-
     def test_copy_stage_x_emit_order(self):
         # set stage_x: PRIMARY -> follower PRIMARY -> G1 -> COPY -> SYNC
-        text = IDEX_QUEUES + "[mq_copy]\nstage_x: 198\n"
+        text = IDEX_QUEUES + "[mq_copy]\nstage_x: 120\n"
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
-        self.assertEqual(mq.copy.stage_x, 198.)
+        self.assertEqual(mq.copy.stage_x, 120.)
         gcode = printer.lookup_object('gcode')
         obj.cmd_COPY(DummyGCmd())
         self.assertEqual(
@@ -318,7 +333,7 @@ class TestCopyMirror(unittest.TestCase):
             [
                 'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
                 'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=PRIMARY',
-                'G1 X198',
+                'G1 X120',
                 'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=COPY',
                 'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
                 ' MOTION_QUEUE=extruder',
@@ -329,11 +344,11 @@ class TestCopyMirror(unittest.TestCase):
         # set stage_x: PRIMARY -> follower PRIMARY -> G1 -> MIRROR -> SYNC
         text = (
             IDEX_QUEUES
-            + "[mirror]\naxis: x\ncenter: 150\nstage_x: 433\n"
+            + "[mq_mirror]\naxis: x\ncenter: 150\nstage_x: 280\n"
         )
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
-        self.assertEqual(mq.mirror.stage_x, 433.)
+        self.assertEqual(mq.mirror.stage_x, 280.)
         self.assertIsNone(mq.copy)
         gcode = printer.lookup_object('gcode')
         obj.cmd_MIRROR(DummyGCmd())
@@ -342,7 +357,7 @@ class TestCopyMirror(unittest.TestCase):
             [
                 'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
                 'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=PRIMARY',
-                'G1 X433',
+                'G1 X280',
                 'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=MIRROR',
                 'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
                 ' MOTION_QUEUE=extruder',
@@ -353,20 +368,20 @@ class TestCopyMirror(unittest.TestCase):
         # COPY uses copy_cfg.stage_x; MIRROR uses mirror_cfg.stage_x
         text = (
             IDEX_QUEUES
-            + "[mq_copy]\nstage_x: 198\n"
-            + "[mirror]\naxis: x\ncenter: 150\nstage_x: 433\n"
+            + "[mq_copy]\nstage_x: 120\n"
+            + "[mq_mirror]\naxis: x\ncenter: 150\nstage_x: 280\n"
         )
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
-        self.assertEqual(mq.copy.stage_x, 198.)
-        self.assertEqual(mq.mirror.stage_x, 433.)
+        self.assertEqual(mq.copy.stage_x, 120.)
+        self.assertEqual(mq.mirror.stage_x, 280.)
         gcode = printer.lookup_object('gcode')
         obj.cmd_COPY(DummyGCmd())
-        self.assertIn('G1 X198', gcode.scripts[-1])
-        self.assertNotIn('G1 X433', gcode.scripts[-1])
+        self.assertIn('G1 X120', gcode.scripts[-1])
+        self.assertNotIn('G1 X280', gcode.scripts[-1])
         obj.cmd_MIRROR(DummyGCmd())
-        self.assertIn('G1 X433', gcode.scripts[-1])
-        self.assertNotIn('G1 X198', gcode.scripts[-1])
+        self.assertIn('G1 X280', gcode.scripts[-1])
+        self.assertNotIn('G1 X120', gcode.scripts[-1])
         check_unused(printer, config, access)
 
 

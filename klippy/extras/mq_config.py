@@ -223,11 +223,11 @@ class MQConfig:
         return CopyConfig(section_name, source, stage_x)
 
     def _parse_mirror(self, config):
-        if not config.has_section("mirror"):
+        if not config.has_section("mq_mirror"):
             return None
-        section = config.getsection("mirror")
+        section = config.getsection("mq_mirror")
         section_name = section.get_name()
-        # Fail-fast: axis and center are required on [mirror]
+        # Fail-fast: axis and center are required on [mq_mirror]
         if not config.fileconfig.has_option(section_name, "axis"):
             raise section.error(
                 "Section '%s' must specify axis" % (section_name,))
