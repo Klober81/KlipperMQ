@@ -105,7 +105,8 @@ class MQManager:
                 self._by_name[alias.lower()] = q
         self.ownership = OwnershipMap(self.queues)
         self.pause_all_queues_on_error = self._parse_pause_all(config)
-        # Per-queue lookaheads when multi_queue; stock path keeps toolhead LA only.
+        # Per-queue lookaheads when multi_queue;
+        # stock path keeps toolhead LA only.
         self.lookaheads = {}
         self.active_motion_queue = self.primary
         if self.ownership.multi_queue:
@@ -120,7 +121,8 @@ class MQManager:
                 gcode.register_command(
                     "SET_MOTION_QUEUE", self.cmd_SET_MOTION_QUEUE,
                     desc=self.cmd_SET_MOTION_QUEUE_help)
-        # Thin bind: swap toolhead.lookahead to active queue LA after toolhead exists.
+        # Thin bind: swap toolhead.lookahead to active queue LA
+        # after toolhead exists.
         if hasattr(self.printer, 'register_event_handler'):
             self.printer.register_event_handler("klippy:connect",
                                                self._handle_connect)
@@ -234,13 +236,15 @@ class MQManager:
         toolhead_obj = self.printer.lookup_object('toolhead', None)
         if toolhead_obj is None:
             return
-        # Preserve flush timing from the stock-constructed LA onto each queue LA.
+        # Preserve flush timing from the stock-constructed LA
+        # onto each queue LA.
         stock_la = toolhead_obj.lookahead
         flush_time = stock_la.junction_flush
         for q in self.queues:
             la = self.lookaheads[q.name]
             la.set_flush_time(flush_time)
-        # Primary/implicit: toolhead starts on primary's LA (sole active pointer).
+        # Primary/implicit: toolhead starts on primary's LA
+        # (sole active pointer).
         self.active_motion_queue = self.primary
         toolhead_obj.lookahead = self.lookaheads[self.primary.name]
 
@@ -255,7 +259,8 @@ class MQManager:
         if toolhead_obj is not None:
             toolhead_obj.lookahead = la
 
-    cmd_SET_MOTION_QUEUE_help = "Select active motion queue for subsequent moves"
+    cmd_SET_MOTION_QUEUE_help = (
+        "Select active motion queue for subsequent moves")
     def cmd_SET_MOTION_QUEUE(self, gcmd):
         queue = self._queue_from_gcmd(gcmd)
         self._select_motion_queue(queue)
