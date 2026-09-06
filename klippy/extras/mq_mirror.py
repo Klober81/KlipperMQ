@@ -1,4 +1,4 @@
-# Thin loader for [mirror] -> copy_mirror singleton
+# Thin loader for [mq_mirror] -> copy_mirror singleton
 #
 # Copyright (C) 2026  Rob Niccum <klober@gmail.com>
 #
