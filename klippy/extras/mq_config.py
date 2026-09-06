@@ -50,19 +50,22 @@ class ToolchangeConfig:
 
 
 class CopyConfig:
-    def __init__(self, section_name, source, stage_x):
+    def __init__(self, section_name, source, stage_x, macro_stage):
         self.section_name = section_name
         self.source = source
         self.stage_x = stage_x
+        self.macro_stage = macro_stage
 
 
 class MirrorConfig:
-    def __init__(self, section_name, source, axis, center, stage_x):
+    def __init__(self, section_name, source, axis, center, stage_x,
+                 macro_stage):
         self.section_name = section_name
         self.source = source
         self.axis = axis
         self.center = center
         self.stage_x = stage_x
+        self.macro_stage = macro_stage
 
 
 class RecoveryConfig:
@@ -220,7 +223,13 @@ class MQConfig:
         section_name = section.get_name()
         source = section.get("source", None)
         stage_x = section.getfloat("stage_x", None)
-        return CopyConfig(section_name, source, stage_x)
+        macro_stage = section.getboolean("macro_stage", False)
+        if stage_x is None and not macro_stage:
+            raise section.error(
+                "Section '%s' must set stage_x or"
+                " macro_stage: True" % (section_name,))
+        return CopyConfig(
+            section_name, source, stage_x, macro_stage)
 
     def _parse_mirror(self, config):
         if not config.has_section("mq_mirror"):
@@ -238,7 +247,14 @@ class MQConfig:
         center = section.getfloat("center")
         source = section.get("source", None)
         stage_x = section.getfloat("stage_x", None)
-        return MirrorConfig(section_name, source, axis, center, stage_x)
+        macro_stage = section.getboolean("macro_stage", False)
+        if stage_x is None and not macro_stage:
+            raise section.error(
+                "Section '%s' must set stage_x or"
+                " macro_stage: True" % (section_name,))
+        return MirrorConfig(
+            section_name, source, axis, center, stage_x,
+            macro_stage)
 
     def _parse_recovery(self, config):
         if not config.has_section('recovery'):

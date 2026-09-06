@@ -97,12 +97,15 @@ class CopyMirror:
         primary, follower, source_ext, follower_ext = self._resolve_pair(
             source_queue, gcmd.error)
         stage_x = None
+        macro_stage = False
         if mode == 'COPY' and self.copy_cfg is not None:
             stage_x = self.copy_cfg.stage_x
+            macro_stage = self.copy_cfg.macro_stage
         elif mode == 'MIRROR' and self.mirror_cfg is not None:
             stage_x = self.mirror_cfg.stage_x
-        # unset stage_x: SET_DUAL+SYNC only (macro path).
-        # set stage_x Formbot: follower PRIMARY, G1, MODE, SYNC.
+            macro_stage = self.mirror_cfg.macro_stage
+        # stage_x set: Formbot PRIMARY->PRIMARY->G1->MODE->SYNC
+        # macro_stage: SET_DUAL+SYNC only (macros own staging)
         lines = [
             'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=PRIMARY' % (primary,),
         ]
@@ -114,7 +117,7 @@ class CopyMirror:
             lines.append(
                 'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=%s'
                 % (follower, mode))
-        else:
+        elif macro_stage:
             lines.append(
                 'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=%s'
                 % (follower, mode))
