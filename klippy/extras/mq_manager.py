@@ -109,6 +109,9 @@ class MQManager:
         # stock path keeps toolhead LA only.
         self.lookaheads = {}
         self.active_motion_queue = self.primary
+        # Last toolhead.print_time observed after a flush that
+        # drained this queue's LA (trapq busy until est catches up).
+        self._trapq_end = {}
         if self.ownership.multi_queue:
             self._init_lookaheads()
         gcode = self.printer.lookup_object('gcode', None)
@@ -121,6 +124,12 @@ class MQManager:
                 gcode.register_command(
                     "SET_MOTION_QUEUE", self.cmd_SET_MOTION_QUEUE,
                     desc=self.cmd_SET_MOTION_QUEUE_help)
+                gcode.register_command(
+                    "QUEUE_WAIT", self.cmd_QUEUE_WAIT,
+                    desc=self.cmd_QUEUE_WAIT_help)
+                gcode.register_command(
+                    "QUEUE_SYNC", self.cmd_QUEUE_SYNC,
+                    desc=self.cmd_QUEUE_SYNC_help)
         # Install MultiLookAhead facade on connect when multi_queue.
         if hasattr(self.printer, 'register_event_handler'):
             self.printer.register_event_handler("klippy:connect",
@@ -265,6 +274,88 @@ class MQManager:
         if not self.ownership.multi_queue:
             return None
         return self.lookaheads.get(queue.name)
+
+    def queue_is_busy(self, queue, toolhead=None, eventtime=None):
+        # Idle = child LA empty and stock print_time past trapq end.
+        if isinstance(queue, str):
+            queue = self.lookup_queue(queue)
+        la = self.lookaheads.get(queue.name)
+        if la is not None and not la.is_empty():
+            return True
+        end = self._trapq_end.get(queue.name, 0.)
+        if end <= 0.:
+            return False
+        if toolhead is None:
+            toolhead = self.printer.lookup_object('toolhead', None)
+        if toolhead is None:
+            return True
+        mcu = getattr(toolhead, 'mcu', None)
+        reactor = getattr(toolhead, 'reactor', None)
+        if mcu is None or reactor is None:
+            return True
+        if eventtime is None:
+            eventtime = reactor.monotonic()
+        return end > mcu.estimated_print_time(eventtime)
+
+    def _note_trapq_ends(self, toolhead, had_pending):
+        # After stock flush, print_time is end of merged stream.
+        pt = getattr(toolhead, 'print_time', None)
+        if pt is None:
+            return
+        for qname, pending in had_pending.items():
+            if not pending:
+                continue
+            prev = self._trapq_end.get(qname, 0.)
+            if pt > prev:
+                self._trapq_end[qname] = pt
+
+    def _flush_pending_for_wait(self, toolhead):
+        # Reuse stock toolhead flush; never invent a second planner.
+        # Stubs without _flush_lookahead keep child LA state so tests
+        # can prove wait blocks while LA busy.
+        if not self.lookaheads:
+            return
+        if not hasattr(toolhead, '_flush_lookahead'):
+            return
+        had = dict((n, not la.is_empty())
+                   for n, la in self.lookaheads.items())
+        if not any(had.values()):
+            return
+        toolhead._flush_lookahead()
+        self._note_trapq_ends(toolhead, had)
+
+    def _wait_queues_idle(self, queues):
+        toolhead = self.printer.lookup_object('toolhead', None)
+        if toolhead is None:
+            return
+        reactor = getattr(toolhead, 'reactor', None)
+        can_pause = getattr(toolhead, 'can_pause', True)
+        eventtime = None
+        if reactor is not None:
+            eventtime = reactor.monotonic()
+        while True:
+            self._flush_pending_for_wait(toolhead)
+            busy = False
+            for q in queues:
+                if self.queue_is_busy(q, toolhead, eventtime):
+                    busy = True
+                    break
+            if not busy:
+                return
+            if reactor is None or not can_pause:
+                return
+            eventtime = reactor.pause(eventtime + 0.100)
+
+    cmd_QUEUE_WAIT_help = (
+        "Block until the named motion queue is idle")
+    def cmd_QUEUE_WAIT(self, gcmd):
+        queue = self._queue_from_gcmd(gcmd)
+        self._wait_queues_idle([queue])
+
+    cmd_QUEUE_SYNC_help = (
+        "Barrier: block until all motion queues are idle")
+    def cmd_QUEUE_SYNC(self, gcmd):
+        self._wait_queues_idle(list(self.queues))
 
 
 def load_config(config):
