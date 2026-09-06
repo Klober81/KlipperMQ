@@ -121,8 +121,7 @@ class MQManager:
                 gcode.register_command(
                     "SET_MOTION_QUEUE", self.cmd_SET_MOTION_QUEUE,
                     desc=self.cmd_SET_MOTION_QUEUE_help)
-        # Thin bind: swap toolhead.lookahead to active queue LA
-        # after toolhead exists.
+        # Install MultiLookAhead facade on connect when multi_queue.
         if hasattr(self.printer, 'register_event_handler'):
             self.printer.register_event_handler("klippy:connect",
                                                self._handle_connect)
@@ -243,21 +242,16 @@ class MQManager:
         for q in self.queues:
             la = self.lookaheads[q.name]
             la.set_flush_time(flush_time)
-        # Primary/implicit: toolhead starts on primary's LA
-        # (sole active pointer).
+        # One facade pointer; SET_MOTION_QUEUE only changes active.
         self.active_motion_queue = self.primary
-        toolhead_obj.lookahead = self.lookaheads[self.primary.name]
+        from extras.mq_lookahead import MultiLookAhead
+        self.multi_lookahead = MultiLookAhead(self, toolhead_obj)
+        toolhead_obj.lookahead = self.multi_lookahead
 
     def _select_motion_queue(self, queue):
+        # Active name only; do not swap toolhead.lookahead.
+        # SET_MOTION_QUEUE does not flush-all.
         self.active_motion_queue = queue
-        if not self.ownership.multi_queue:
-            return
-        la = self.lookaheads.get(queue.name)
-        if la is None:
-            return
-        toolhead_obj = self.printer.lookup_object('toolhead', None)
-        if toolhead_obj is not None:
-            toolhead_obj.lookahead = la
 
     cmd_SET_MOTION_QUEUE_help = (
         "Select active motion queue for subsequent moves")
