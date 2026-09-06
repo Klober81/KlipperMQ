@@ -177,8 +177,9 @@ class TestCopyMirror(unittest.TestCase):
     def test_singleton_both_sections(self):
         text = (
             IDEX_QUEUES
-            + "[mq_copy]\n"
+            + "[mq_copy]\nmacro_stage: True\n"
             + "[mq_mirror]\naxis: x\ncenter: 150\n"
+            + "macro_stage: True\n"
         )
         printer, config, obj, access = load_cm(text)
         a = copy_mod.load_config(config.getsection('mq_copy'))
@@ -201,14 +202,17 @@ class TestCopyMirror(unittest.TestCase):
         self.assertEqual(mq.mirror.center, 150.)
         self.assertIsNone(mq.copy.stage_x)
         self.assertIsNone(mq.mirror.stage_x)
+        self.assertTrue(mq.copy.macro_stage)
+        self.assertTrue(mq.mirror.macro_stage)
         check_unused(printer, config, access)
 
     def test_source_default_primary(self):
-        text = IDEX_QUEUES + "[mq_copy]\n"
+        text = IDEX_QUEUES + "[mq_copy]\nmacro_stage: True\n"
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
         self.assertIsNone(mq.copy.source)
         self.assertIsNone(mq.copy.stage_x)
+        self.assertTrue(mq.copy.macro_stage)
         gcode = printer.lookup_object('gcode')
         obj.cmd_COPY(DummyGCmd())
         script = gcode.scripts[-1]
@@ -230,8 +234,9 @@ class TestCopyMirror(unittest.TestCase):
         # (c) COPY/MIRROR line order; COPY_OFF/MIRROR_OFF unsync
         text = (
             IDEX_QUEUES
-            + "[mq_copy]\n"
+            + "[mq_copy]\nmacro_stage: True\n"
             + "[mq_mirror]\naxis: x\ncenter: 150\n"
+            + "macro_stage: True\n"
         )
         printer, config, obj, access = load_cm(text)
         gcode = printer.lookup_object('gcode')
@@ -270,7 +275,7 @@ class TestCopyMirror(unittest.TestCase):
         check_unused(printer, config, access)
 
     def test_copy_only_registers_copy_and_off(self):
-        text = IDEX_QUEUES + "[mq_copy]\n"
+        text = IDEX_QUEUES + "[mq_copy]\nmacro_stage: True\n"
         printer, config, obj, access = load_cm(text)
         gcode = printer.lookup_object('gcode')
         self.assertIn('COPY', gcode.commands)
@@ -279,7 +284,11 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIn('MIRROR_OFF', gcode.commands)
 
     def test_mirror_only_registers_mirror_and_off(self):
-        text = IDEX_QUEUES + "[mq_mirror]\naxis: x\ncenter: 150\n"
+        text = (
+            IDEX_QUEUES
+            + "[mq_mirror]\naxis: x\ncenter: 150\n"
+            + "macro_stage: True\n"
+        )
         printer, config, obj, access = load_cm(text)
         gcode = printer.lookup_object('gcode')
         self.assertNotIn('COPY', gcode.commands)
@@ -305,7 +314,7 @@ class TestCopyMirror(unittest.TestCase):
         self.assertEqual(_cm_sections(fileconfig), [])
 
     def test_missing_dual_carriage_errors(self):
-        text = IDEX_QUEUES + "[mq_copy]\n"
+        text = IDEX_QUEUES + "[mq_copy]\nmacro_stage: True\n"
         printer, config, obj, access = load_cm(
             text, with_dual=False)
         with self.assertRaises(configfile.error) as ctx:
@@ -316,6 +325,7 @@ class TestCopyMirror(unittest.TestCase):
         text = (
             IDEX_QUEUES
             + "[mq_copy]\nsource: primary\n"
+            + "macro_stage: True\n"
         )
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
@@ -389,6 +399,66 @@ class TestCopyMirror(unittest.TestCase):
         obj.cmd_MIRROR(DummyGCmd())
         self.assertIn('G1 X280', gcode.scripts[-1])
         self.assertNotIn('G1 X120', gcode.scripts[-1])
+        check_unused(printer, config, access)
+
+
+    def test_unset_stage_requires_macro_stage(self):
+        # neither stage_x nor macro_stage -> config_error
+        text = IDEX_QUEUES + "[mq_copy]\n"
+        self.assert_error(
+            text, "must set stage_x or macro_stage: True")
+        text = (
+            IDEX_QUEUES
+            + "[mq_mirror]\naxis: x\ncenter: 150\n"
+        )
+        self.assert_error(
+            text, "must set stage_x or macro_stage: True")
+
+    def test_macro_stage_copy_emit_no_g1(self):
+        # macro_stage True, no stage_x: SET_DUAL+SYNC only
+        text = IDEX_QUEUES + "[mq_copy]\nmacro_stage: True\n"
+        printer, config, obj, access = load_cm(text)
+        mq = printer.lookup_object('mq_config')
+        self.assertIsNone(mq.copy.stage_x)
+        self.assertTrue(mq.copy.macro_stage)
+        gcode = printer.lookup_object('gcode')
+        self.assertIn('COPY', gcode.commands)
+        obj.cmd_COPY(DummyGCmd())
+        lines = gcode.scripts[-1].split('\n')
+        self.assertEqual(
+            lines,
+            [
+                'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=COPY',
+                'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
+                ' MOTION_QUEUE=extruder',
+            ])
+        self.assertFalse(
+            any(l.startswith('G1 ') for l in lines))
+        check_unused(printer, config, access)
+
+    def test_stage_x_ignores_macro_stage(self):
+        # stage_x set -> G1 path even if macro_stage True
+        text = (
+            IDEX_QUEUES
+            + "[mq_copy]\nstage_x: 120\nmacro_stage: True\n"
+        )
+        printer, config, obj, access = load_cm(text)
+        mq = printer.lookup_object('mq_config')
+        self.assertEqual(mq.copy.stage_x, 120.)
+        self.assertTrue(mq.copy.macro_stage)
+        gcode = printer.lookup_object('gcode')
+        obj.cmd_COPY(DummyGCmd())
+        self.assertEqual(
+            gcode.scripts[-1].split('\n'),
+            [
+                'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=PRIMARY',
+                'G1 X120',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=COPY',
+                'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
+                ' MOTION_QUEUE=extruder',
+            ])
         check_unused(printer, config, access)
 
 if __name__ == '__main__':

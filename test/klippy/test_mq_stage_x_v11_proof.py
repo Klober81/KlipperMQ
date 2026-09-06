@@ -20,11 +20,15 @@ class TestStageXV11Proof(unittest.TestCase):
         self.assertTrue(TIP_SHA.startswith('df6ef8884'))
 
     def test_unset_copy_emit_order_no_g1(self):
-        # unset: PRIMARY -> COPY -> SYNC (no G1)
-        text = tcm.IDEX_QUEUES + "[mq_copy]\n"
+        # macro_stage: PRIMARY -> COPY -> SYNC (no G1)
+        text = (
+            tcm.IDEX_QUEUES
+            + "[mq_copy]\nmacro_stage: True\n"
+        )
         printer, config, obj, access = tcm.load_cm(text)
         mq = printer.lookup_object('mq_config')
         self.assertIsNone(mq.copy.stage_x)
+        self.assertTrue(mq.copy.macro_stage)
         gcode = printer.lookup_object('gcode')
         obj.cmd_COPY(tcm.DummyGCmd())
         lines = gcode.scripts[-1].split('\n')
@@ -40,14 +44,16 @@ class TestStageXV11Proof(unittest.TestCase):
             any(l.startswith('G1 ') for l in lines))
 
     def test_unset_mirror_emit_order_no_g1(self):
-        # unset: PRIMARY -> MIRROR -> SYNC (no G1)
+        # macro_stage: PRIMARY -> MIRROR -> SYNC (no G1)
         text = (
             tcm.IDEX_QUEUES
             + "[mq_mirror]\naxis: x\ncenter: 150\n"
+            + "macro_stage: True\n"
         )
         printer, config, obj, access = tcm.load_cm(text)
         mq = printer.lookup_object('mq_config')
         self.assertIsNone(mq.mirror.stage_x)
+        self.assertTrue(mq.mirror.macro_stage)
         gcode = printer.lookup_object('gcode')
         obj.cmd_MIRROR(tcm.DummyGCmd())
         lines = gcode.scripts[-1].split('\n')
@@ -137,8 +143,9 @@ class TestStageXV11Proof(unittest.TestCase):
         # [mq_copy]/[mq_mirror] load; bare mirror blocked
         text = (
             tcm.IDEX_QUEUES
-            + "[mq_copy]\n"
+            + "[mq_copy]\nmacro_stage: True\n"
             + "[mq_mirror]\naxis: x\ncenter: 150\n"
+            + "macro_stage: True\n"
         )
         printer, config, obj, access = tcm.load_cm(text)
         mq = printer.lookup_object('mq_config')
@@ -163,6 +170,15 @@ class TestStageXV11Proof(unittest.TestCase):
         self.assertFalse(
             os.path.isfile(os.path.join(
                 tcm.ROOT, 'klippy', 'extras', 'mirror.py')))
+
+
+    def test_bare_section_without_stage_or_macro_errors(self):
+        text = tcm.IDEX_QUEUES + "[mq_copy]\n"
+        with self.assertRaises(tcm.configfile.error) as ctx:
+            tcm.load_cm(text)
+        self.assertIn(
+            "must set stage_x or macro_stage: True",
+            str(ctx.exception))
 
     def test_harness_has_no_blocked_park_literals(self):
         path = os.path.abspath(__file__)
