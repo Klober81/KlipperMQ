@@ -122,9 +122,12 @@ class MQManager:
                     "SET_MOTION_QUEUE", self.cmd_SET_MOTION_QUEUE,
                     desc=self.cmd_SET_MOTION_QUEUE_help)
         # Install MultiLookAhead facade on connect when multi_queue.
+        # ARCH sec 7: pause all queue LAs on gcode/toolhead command_error.
         if hasattr(self.printer, 'register_event_handler'):
             self.printer.register_event_handler("klippy:connect",
                                                self._handle_connect)
+            self.printer.register_event_handler(
+                "gcode:command_error", self._handle_command_error)
 
     def _parse_pause_all(self, config):
         fileconfig = config.fileconfig
@@ -247,6 +250,37 @@ class MQManager:
         from extras.mq_lookahead import MultiLookAhead
         self.multi_lookahead = MultiLookAhead(self, toolhead_obj)
         toolhead_obj.lookahead = self.multi_lookahead
+
+    def _handle_command_error(self):
+        # Stock gcode.py sends gcode:command_error on CommandError
+        # (covers toolhead move_error raised as command_error).
+        self.pause_queues_for_error()
+
+    def pause_queues_for_error(self):
+        # ARCH sec 7: when enabled, idle every queue LA and enter
+        # NeedPrime special_queuing. Selective resume later is OK.
+        # No new error G-codes; do not touch recovery.
+        if not self.pause_all_queues_on_error:
+            return
+        if not self.ownership.multi_queue:
+            return
+        for la in self.lookaheads.values():
+            la.reset()
+        mla = getattr(self, 'multi_lookahead', None)
+        if mla is not None:
+            mla._next_t.clear()
+        toolhead = self.printer.lookup_object('toolhead', None)
+        if toolhead is None:
+            return
+        # Match stock _flush_lookahead NeedPrime transition without
+        # emitting pending moves (discard planned motion on error).
+        toolhead.special_queuing_state = "NeedPrime"
+        toolhead.need_check_pause = -1.
+        toolhead.check_stall_time = 0.
+        la = getattr(toolhead, 'lookahead', None)
+        if la is not None:
+            # toolhead.BUFFER_TIME_HIGH == 1.0
+            la.set_flush_time(1.0)
 
     def _select_motion_queue(self, queue):
         # Active name only; do not swap toolhead.lookahead.
