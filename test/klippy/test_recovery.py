@@ -71,6 +71,13 @@ class DummyPrintStats:
         self.filename = filename
 
 
+class DummyHeater:
+    def __init__(self, name, target_temp=0.):
+        self.name = name
+        self.short_name = name.split()[-1]
+        self.target_temp = float(target_temp)
+
+
 def load_recovery(text, state_path=None, with_gcode=True,
                   motion_last_id=0, filename='job.gcode'):
     printer = DummyPrinter()
@@ -247,6 +254,7 @@ class TestRecovery(unittest.TestCase):
         self.assertFalse(os.path.exists(self.state_path))
 
     def test_script_omits_raw_threshold_waits(self):
+        # No snapshot setpoints => do not emit raw thresholds.
         text = self._cfg(
             "bed_temp_threshold: 5\n"
             "chamber_temp_threshold: 3\n"
@@ -260,6 +268,98 @@ class TestRecovery(unittest.TestCase):
         self.assertIn('G28 X Y', script)
         self.assertIn('M117', script)
 
+    def test_persist_heater_setpoints(self):
+        printer, config, obj, access = load_recovery(self._cfg())
+        printer.objects['heater_bed'] = DummyHeater(
+            'heater_bed', 60.)
+        printer.objects['heater_generic chamber'] = DummyHeater(
+            'heater_generic chamber', 40.)
+        rec = obj.note_bookmark(2, filename='set.gcode')
+        self.assertEqual(rec.bed_target, 60.)
+        self.assertEqual(rec.chamber_target, 40.)
+        loaded = recovery.RecoveryState.load(self.state_path)
+        self.assertEqual(loaded.live.bed_target, 60.)
+        self.assertEqual(loaded.live.chamber_target, 40.)
+        self.assertEqual(loaded.last.bed_target, 60.)
+
+    def test_script_restores_setpoints_then_wait_then_hold(self):
+        text = self._cfg(
+            "bed_temp_threshold: 5\n"
+            "chamber_temp_threshold: 3\n"
+            "bed_temp_hold_time: 2\n"
+            "restore_chamber: True\n")
+        printer, config, obj, access = load_recovery(text)
+        printer.objects['heater_bed'] = DummyHeater(
+            'heater_bed', 60.)
+        printer.objects['heater_generic chamber'] = DummyHeater(
+            'heater_generic chamber', 40.)
+        obj.note_bookmark(1, filename='job.gcode')
+        lines = obj.build_recovery_script()
+        script = '\n'.join(lines)
+        self.assertIn(
+            'SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET=60',
+            script)
+        self.assertIn(
+            'TEMPERATURE_WAIT SENSOR=heater_bed MINIMUM=55',
+            script)
+        self.assertIn(
+            'SET_HEATER_TEMPERATURE HEATER=chamber TARGET=40',
+            script)
+        self.assertIn(
+            'TEMPERATURE_WAIT SENSOR="heater_generic chamber" '
+            'MINIMUM=37',
+            script)
+        self.assertIn('G4 P2000', script)
+        # Order: SET/WAIT(s), then hold, then Z hop.
+        i_bed_set = script.find(
+            'SET_HEATER_TEMPERATURE HEATER=heater_bed')
+        i_bed_wait = script.find(
+            'TEMPERATURE_WAIT SENSOR=heater_bed')
+        i_ch_set = script.find(
+            'SET_HEATER_TEMPERATURE HEATER=chamber')
+        i_ch_wait = script.find(
+            'TEMPERATURE_WAIT SENSOR="heater_generic chamber"')
+        i_hold = script.find('G4 P2000')
+        i_hop = script.find('G1 Z5')
+        self.assertTrue(
+            0 <= i_bed_set < i_bed_wait < i_ch_set < i_ch_wait
+            < i_hold < i_hop, script)
+        # Thresholds are below target, not raw absolutes alone.
+        self.assertNotIn('MINIMUM=5\n', script + '\n')
+        self.assertNotIn('MINIMUM=3\n', script + '\n')
+
+    def test_script_skips_chamber_without_heater(self):
+        text = self._cfg(
+            "bed_temp_threshold: 5\n"
+            "chamber_temp_threshold: 3\n"
+            "restore_chamber: True\n")
+        printer, config, obj, access = load_recovery(text)
+        printer.objects['heater_bed'] = DummyHeater(
+            'heater_bed', 55.)
+        obj.note_bookmark(
+            3, bed_target=55., chamber_target=35.)
+        script = '\n'.join(obj.build_recovery_script())
+        self.assertIn('HEATER=heater_bed TARGET=55', script)
+        self.assertIn(
+            'TEMPERATURE_WAIT SENSOR=heater_bed MINIMUM=50',
+            script)
+        self.assertNotIn('HEATER=chamber', script)
+        self.assertNotIn('heater_generic chamber', script)
+
+    def test_script_skips_chamber_when_restore_false(self):
+        text = self._cfg(
+            "bed_temp_threshold: 5\n"
+            "chamber_temp_threshold: 3\n"
+            "restore_chamber: False\n")
+        printer, config, obj, access = load_recovery(text)
+        printer.objects['heater_bed'] = DummyHeater(
+            'heater_bed', 60.)
+        printer.objects['heater_generic chamber'] = DummyHeater(
+            'heater_generic chamber', 40.)
+        obj.note_bookmark(4)
+        script = '\n'.join(obj.build_recovery_script())
+        self.assertIn('HEATER=heater_bed', script)
+        self.assertNotIn('HEATER=chamber', script)
 
     def test_mq_config_lookup_deferred_until_connect(self):
         text = self._cfg()
