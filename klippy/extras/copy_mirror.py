@@ -92,12 +92,29 @@ class CopyMirror:
             source_token, gcmd.error)
         primary, follower, source_ext, follower_ext = self._resolve_pair(
             source_queue, gcmd.error)
+        stage_x = None
+        if mode == 'COPY' and self.copy_cfg is not None:
+            stage_x = self.copy_cfg.stage_x
+        elif mode == 'MIRROR' and self.mirror_cfg is not None:
+            stage_x = self.mirror_cfg.stage_x
         lines = [
             'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=PRIMARY' % (primary,),
-            'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=%s' % (follower, mode),
-            'SYNC_EXTRUDER_MOTION EXTRUDER=%s MOTION_QUEUE=%s'
-            % (follower_ext, source_ext),
         ]
+        if stage_x is not None:
+            lines.append(
+                'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=PRIMARY'
+                % (follower,))
+            lines.append('G1 X%.6g' % (stage_x,))
+            lines.append(
+                'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=%s'
+                % (follower, mode))
+        else:
+            lines.append(
+                'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=%s'
+                % (follower, mode))
+        lines.append(
+            'SYNC_EXTRUDER_MOTION EXTRUDER=%s MOTION_QUEUE=%s'
+            % (follower_ext, source_ext))
         gcode = self.printer.lookup_object('gcode')
         gcode.run_script_from_command('\n'.join(lines))
         self._active = mode

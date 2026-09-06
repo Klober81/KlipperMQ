@@ -197,6 +197,8 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIsNone(mq.mirror.source)
         self.assertEqual(mq.mirror.axis, 'x')
         self.assertEqual(mq.mirror.center, 150.)
+        self.assertIsNone(mq.copy.stage_x)
+        self.assertIsNone(mq.mirror.stage_x)
         check_unused(printer, config, access)
 
     def test_source_default_primary(self):
@@ -204,6 +206,7 @@ class TestCopyMirror(unittest.TestCase):
         printer, config, obj, access = load_cm(text)
         mq = printer.lookup_object('mq_config')
         self.assertIsNone(mq.copy.source)
+        self.assertIsNone(mq.copy.stage_x)
         gcode = printer.lookup_object('gcode')
         obj.cmd_COPY(DummyGCmd())
         script = gcode.scripts[-1]
@@ -298,6 +301,72 @@ class TestCopyMirror(unittest.TestCase):
         script = gcode.scripts[-1]
         self.assertIn('CARRIAGE=0 MODE=PRIMARY', script)
         self.assertIn('CARRIAGE=1 MODE=COPY', script)
+        check_unused(printer, config, access)
+
+
+
+    def test_copy_stage_x_emit_order(self):
+        # set stage_x: PRIMARY -> follower PRIMARY -> G1 -> COPY -> SYNC
+        text = IDEX_QUEUES + "[mq_copy]\nstage_x: 198\n"
+        printer, config, obj, access = load_cm(text)
+        mq = printer.lookup_object('mq_config')
+        self.assertEqual(mq.copy.stage_x, 198.)
+        gcode = printer.lookup_object('gcode')
+        obj.cmd_COPY(DummyGCmd())
+        self.assertEqual(
+            gcode.scripts[-1].split('\n'),
+            [
+                'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=PRIMARY',
+                'G1 X198',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=COPY',
+                'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
+                ' MOTION_QUEUE=extruder',
+            ])
+        check_unused(printer, config, access)
+
+    def test_mirror_stage_x_emit_order(self):
+        # set stage_x: PRIMARY -> follower PRIMARY -> G1 -> MIRROR -> SYNC
+        text = (
+            IDEX_QUEUES
+            + "[mirror]\naxis: x\ncenter: 150\nstage_x: 433\n"
+        )
+        printer, config, obj, access = load_cm(text)
+        mq = printer.lookup_object('mq_config')
+        self.assertEqual(mq.mirror.stage_x, 433.)
+        self.assertIsNone(mq.copy)
+        gcode = printer.lookup_object('gcode')
+        obj.cmd_MIRROR(DummyGCmd())
+        self.assertEqual(
+            gcode.scripts[-1].split('\n'),
+            [
+                'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=PRIMARY',
+                'G1 X433',
+                'SET_DUAL_CARRIAGE CARRIAGE=1 MODE=MIRROR',
+                'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
+                ' MOTION_QUEUE=extruder',
+            ])
+        check_unused(printer, config, access)
+
+    def test_stage_x_per_section(self):
+        # COPY uses copy_cfg.stage_x; MIRROR uses mirror_cfg.stage_x
+        text = (
+            IDEX_QUEUES
+            + "[mq_copy]\nstage_x: 198\n"
+            + "[mirror]\naxis: x\ncenter: 150\nstage_x: 433\n"
+        )
+        printer, config, obj, access = load_cm(text)
+        mq = printer.lookup_object('mq_config')
+        self.assertEqual(mq.copy.stage_x, 198.)
+        self.assertEqual(mq.mirror.stage_x, 433.)
+        gcode = printer.lookup_object('gcode')
+        obj.cmd_COPY(DummyGCmd())
+        self.assertIn('G1 X198', gcode.scripts[-1])
+        self.assertNotIn('G1 X433', gcode.scripts[-1])
+        obj.cmd_MIRROR(DummyGCmd())
+        self.assertIn('G1 X433', gcode.scripts[-1])
+        self.assertNotIn('G1 X198', gcode.scripts[-1])
         check_unused(printer, config, access)
 
 
