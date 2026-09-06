@@ -163,6 +163,7 @@ class TestCopyMirror(unittest.TestCase):
         self.assertNotIn('COPY', gcode.commands)
         self.assertNotIn('MIRROR', gcode.commands)
         self.assertNotIn('COPY_OFF', gcode.commands)
+        self.assertNotIn('MIRROR_OFF', gcode.commands)
 
     def test_mirror_missing_center_config_error(self):
         # (b) [mq_mirror] missing center -> config_error
@@ -190,6 +191,7 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIn('COPY', gcode.commands)
         self.assertIn('MIRROR', gcode.commands)
         self.assertIn('COPY_OFF', gcode.commands)
+        self.assertIn('MIRROR_OFF', gcode.commands)
         mq = printer.lookup_object('mq_config')
         self.assertIsNotNone(mq.copy)
         self.assertIsNotNone(mq.mirror)
@@ -225,7 +227,7 @@ class TestCopyMirror(unittest.TestCase):
         check_unused(printer, config, access)
 
     def test_copy_mirror_off_emit_order(self):
-        # (c) COPY/MIRROR line order; COPY_OFF unsyncs
+        # (c) COPY/MIRROR line order; COPY_OFF/MIRROR_OFF unsync
         text = (
             IDEX_QUEUES
             + "[mq_copy]\n"
@@ -253,15 +255,18 @@ class TestCopyMirror(unittest.TestCase):
                 'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
                 ' MOTION_QUEUE=extruder',
             ])
+        expected_off = [
+            'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
+            'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
+            ' MOTION_QUEUE=extruder1',
+        ]
         obj.cmd_COPY_OFF(DummyGCmd())
-        off_script = gcode.scripts[-1]
         self.assertEqual(
-            off_script.split('\n'),
-            [
-                'SET_DUAL_CARRIAGE CARRIAGE=0 MODE=PRIMARY',
-                'SYNC_EXTRUDER_MOTION EXTRUDER=extruder1'
-                ' MOTION_QUEUE=extruder1',
-            ])
+            gcode.scripts[-1].split('\n'), expected_off)
+        obj.cmd_COPY(DummyGCmd())
+        obj.cmd_MIRROR_OFF(DummyGCmd())
+        self.assertEqual(
+            gcode.scripts[-1].split('\n'), expected_off)
         check_unused(printer, config, access)
 
     def test_copy_only_registers_copy_and_off(self):
@@ -271,6 +276,7 @@ class TestCopyMirror(unittest.TestCase):
         self.assertIn('COPY', gcode.commands)
         self.assertNotIn('MIRROR', gcode.commands)
         self.assertIn('COPY_OFF', gcode.commands)
+        self.assertIn('MIRROR_OFF', gcode.commands)
 
     def test_mirror_only_registers_mirror_and_off(self):
         text = IDEX_QUEUES + "[mq_mirror]\naxis: x\ncenter: 150\n"
@@ -279,6 +285,7 @@ class TestCopyMirror(unittest.TestCase):
         self.assertNotIn('COPY', gcode.commands)
         self.assertIn('MIRROR', gcode.commands)
         self.assertIn('COPY_OFF', gcode.commands)
+        self.assertIn('MIRROR_OFF', gcode.commands)
 
     def test_bare_mirror_section_blocked(self):
         # Bare [mirror] must not parse as mq_mirror / load copy_mirror
