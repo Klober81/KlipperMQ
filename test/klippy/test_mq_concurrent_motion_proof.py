@@ -122,8 +122,9 @@ class TestConcurrentMotionProof(unittest.TestCase):
     def test_g1_path_targets_single_toolhead_move(self):
         src = read_src('klippy', 'extras', 'gcode_move.py')
         self.assertIn('self.move_with_transform = toolhead.move', src)
-        self.assertIn('self.move_with_transform(self.last_position, self.speed)',
-                      src)
+        self.assertIn(
+            'self.move_with_transform(self.last_position, self.speed)',
+            src)
         # SET_MOTION_QUEUE lives on mq_manager (extras), not stock G1.
         self.assertNotIn('SET_MOTION_QUEUE', src)
         self.assertNotIn('mq_manager', src)
