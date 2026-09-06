@@ -97,6 +97,8 @@ class CopyMirror:
             stage_x = self.copy_cfg.stage_x
         elif mode == 'MIRROR' and self.mirror_cfg is not None:
             stage_x = self.mirror_cfg.stage_x
+        # unset stage_x: SET_DUAL+SYNC only (macro path).
+        # set stage_x Formbot: follower PRIMARY, G1, MODE, SYNC.
         lines = [
             'SET_DUAL_CARRIAGE CARRIAGE=%d MODE=PRIMARY' % (primary,),
         ]
