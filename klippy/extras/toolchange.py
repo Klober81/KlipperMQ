@@ -18,7 +18,7 @@ class ToolSpec:
 
 class EmitStep:
     # kind: set_motion_queue | dual_carriage | park_move |
-    #       activate | hop_down
+    #       activate | hop_down | queue_wait | queue_sync
     def __init__(self, kind, queue_name=None, idx=None,
                  lines=None, hop=None):
         self.kind = kind
@@ -198,9 +198,17 @@ class Toolchange:
         return True
 
     def _build_emit_plan(self, outgoing, incoming, gcmd):
+        # Overlap path: wait outgoing idle, park on its queue,
+        # wait incoming idle, activate incoming, then QUEUE_SYNC
+        # so both queues rendezvous before TOOLCHANGE returns.
+        # Reuses QUEUE_WAIT / QUEUE_SYNC; no new public commands.
         steps = []
         hop = 0.
         overlap = self._use_overlap_emit(outgoing, incoming)
+        if overlap:
+            steps.append(EmitStep(
+                'queue_wait',
+                queue_name=outgoing.queue_name))
         if outgoing is not None:
             if overlap:
                 steps.append(EmitStep(
@@ -215,6 +223,9 @@ class Toolchange:
             steps.append(EmitStep('park_move', lines=park))
         if overlap:
             steps.append(EmitStep(
+                'queue_wait',
+                queue_name=incoming.queue_name))
+            steps.append(EmitStep(
                 'set_motion_queue',
                 queue_name=incoming.queue_name))
         act = self._activate_lines(incoming, gcmd)
@@ -222,6 +233,8 @@ class Toolchange:
             steps.append(EmitStep('activate', lines=act))
         if hop:
             steps.append(EmitStep('hop_down', hop=hop))
+        if overlap:
+            steps.append(EmitStep('queue_sync'))
         return ToolchangeEmitPlan(outgoing, incoming, steps)
 
     def _render_steps(self, steps):
@@ -244,6 +257,12 @@ class Toolchange:
                 lines.append('G91')
                 lines.append('G1 Z%.6g' % (-step.hop,))
                 lines.append('G90')
+            elif kind == 'queue_wait':
+                lines.append(
+                    'QUEUE_WAIT QUEUE=%s'
+                    % (step.queue_name,))
+            elif kind == 'queue_sync':
+                lines.append('QUEUE_SYNC')
         return lines
 
     cmd_TOOLCHANGE_help = (
