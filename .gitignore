@@ -4,3 +4,7 @@ out
 .config
 .config.old
 klippy/.version
+
+# Local Jack locks — visible to Grok Build / agents; never push
+ARCHITECTURE.md
+AGENTS.md
